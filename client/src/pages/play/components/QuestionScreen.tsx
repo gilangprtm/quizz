@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { type LatLng, MapPicker } from '@/components/GeoMap';
 import { QuadOptionGrid } from '@/components/game/QuadOptionGrid';
 import { TimerBar } from '@/components/game/TimerBar';
+import { IntegerInput } from '@/components/Input';
 import { PageVCenter } from '@/components/layout';
 import { OptionText } from '@/components/OptionText';
 import { QuestionImage } from '@/components/QuestionImage';
@@ -93,6 +94,9 @@ export function QuestionScreen({
   const [order, setOrder] = useState<number[]>(() => question.options.map((_, i) => i));
   const [localSubmitted, setLocalSubmitted] = useState(false);
   const [pinPoint, setPinPoint] = useState<LatLng | null>(null);
+  const [closestInputIsInteger, setClosestInputIsInteger] = useState(() =>
+    Number.isInteger(closestValue),
+  );
   const reorder = usePointerReorder(
     (from, to) => setOrder((prev) => arrayMove(prev, from, to)),
     localSubmitted,
@@ -107,6 +111,7 @@ export function QuestionScreen({
     setOrder(question.options.map((_, i) => i));
     setLocalSubmitted(false);
     setPinPoint(null);
+    setClosestInputIsInteger(Number.isInteger(closestValue));
   }
 
   const hasAnswered =
@@ -264,6 +269,7 @@ export function QuestionScreen({
             >
               {(() => {
                 const outOfRange =
+                  !closestInputIsInteger ||
                   !Number.isInteger(closestValue) ||
                   closestValue < rangeMin ||
                   closestValue > rangeMax;
@@ -275,28 +281,19 @@ export function QuestionScreen({
                     >
                       Your answer — whole number between {rangeMin} and {rangeMax}
                     </label>
-                    <Input
+                    <IntegerInput
                       id="closest-answer"
-                      type="number"
-                      inputMode="numeric"
                       min={rangeMin}
                       max={rangeMax}
-                      step={1}
-                      value={Number.isNaN(closestValue) ? '' : closestValue}
+                      value={closestValue}
                       disabled={closestSubmitted}
                       aria-invalid={outOfRange}
+                      onValueChange={onClosestChange}
+                      onValidityChange={setClosestInputIsInteger}
                       onKeyDown={(e) => {
-                        if (['.', ',', 'e', 'E', '+', '-'].includes(e.key)) {
-                          e.preventDefault();
-                        } else if (e.key === 'Enter' && !closestSubmitted && !outOfRange) {
+                        if (e.key === 'Enter' && !closestSubmitted && !outOfRange) {
                           onClosestSubmit();
                         }
-                      }}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        if (raw === '') return;
-                        const next = Math.trunc(Number(raw));
-                        if (!Number.isNaN(next)) onClosestChange(next);
                       }}
                       className="mb-2 text-center text-lg"
                     />

@@ -1,6 +1,6 @@
 import { ListChecks, type LucideIcon, Timer, Trophy } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Input, Textarea } from '@/components/Input';
+import { IntegerInput, Textarea } from '@/components/Input';
 import { TagInput } from '@/components/TagInput';
 import { cn } from '@/lib/utils';
 import type { ImportQuestion } from '@/types';
@@ -85,14 +85,13 @@ export function PropertiesPanel({ q, ops, onChange }: Props) {
             </button>
           ))}
         </div>
-        <Input
+        <IntegerInput
           noMargin
           className="mt-2"
-          type="number"
           min={5}
           max={120}
           value={q.timeSec ?? 20}
-          onChange={(e) => onChange('timeSec', Number(e.target.value))}
+          onValueChange={(value) => onChange('timeSec', value)}
         />
       </section>
 
@@ -111,14 +110,13 @@ export function PropertiesPanel({ q, ops, onChange }: Props) {
             </button>
           ))}
         </div>
-        <Input
+        <IntegerInput
           noMargin
           label="Base score"
-          type="number"
           min={0}
           step={50}
           value={q.baseScore}
-          onChange={(e) => onChange('baseScore', Number(e.target.value))}
+          onValueChange={(value) => onChange('baseScore', value)}
         />
       </section>
 

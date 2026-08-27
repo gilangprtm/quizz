@@ -1,7 +1,7 @@
 import { Check, GripVertical, ImageIcon, Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { MapPicker } from '@/components/GeoMap';
-import { Input } from '@/components/Input';
+import { Input, IntegerInput } from '@/components/Input';
 import { MediaPicker } from '@/components/MediaPicker';
 import { Button } from '@/components/ui/button';
 import { countBlanks, isImageUrl, optionLetter, quadColor, quadIcon } from '@/helpers';
@@ -89,27 +89,24 @@ export function QuestionCanvas({ q, ops, onChange }: Props) {
       {type === 'closest_to' && (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Input
+            <IntegerInput
               noMargin
               label="Range Min *"
-              type="number"
               value={q.rangeMin ?? 1}
-              onChange={(e) => onChange('rangeMin', Number(e.target.value))}
+              onValueChange={(value) => onChange('rangeMin', value)}
             />
-            <Input
+            <IntegerInput
               noMargin
               label="Range Max *"
-              type="number"
               value={q.rangeMax ?? 100}
-              onChange={(e) => onChange('rangeMax', Number(e.target.value))}
+              onValueChange={(value) => onChange('rangeMax', value)}
             />
           </div>
-          <Input
+          <IntegerInput
             noMargin
             label="Correct Answer (integer) *"
-            type="number"
             value={q.correctAnswer ?? ''}
-            onChange={(e) => onChange('correctAnswer', e.target.value)}
+            onValueChange={(value) => onChange('correctAnswer', String(value))}
             placeholder="Must be within the range"
           />
           <p className="text-sm text-muted-foreground">

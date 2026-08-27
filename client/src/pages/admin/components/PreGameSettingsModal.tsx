@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Input } from '@/components/Input';
+import { IntegerInput } from '@/components/Input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -44,13 +44,12 @@ export function PreGameSettingsModal({ config, onConfirm, onCancel }: Props) {
           </p>
 
           <div className="flex flex-col gap-5">
-            <Input
+            <IntegerInput
               id="pass-joker-score"
               label="Pass joker score"
-              type="number"
               min={0}
               value={baseScore}
-              onChange={(e) => setBaseScore(Number(e.target.value))}
+              onValueChange={setBaseScore}
               hint="Points awarded to each player when the Pass joker is used"
             />
 
@@ -67,13 +66,12 @@ export function PreGameSettingsModal({ config, onConfirm, onCancel }: Props) {
               </div>
               {streakEnabled && (
                 <div className="pl-7">
-                  <Input
+                  <IntegerInput
                     id="streak-base-score"
                     label="Points per streak level above minimum"
-                    type="number"
                     min={0}
                     value={streakBase}
-                    onChange={(e) => setStreakBase(Number(e.target.value))}
+                    onValueChange={setStreakBase}
                     noMargin
                   />
                 </div>
