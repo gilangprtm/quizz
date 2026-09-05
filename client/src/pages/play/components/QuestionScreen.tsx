@@ -286,6 +286,7 @@ export function QuestionScreen({
                       min={rangeMin}
                       max={rangeMax}
                       value={closestValue}
+                      randomOnInvalid
                       disabled={closestSubmitted}
                       aria-invalid={outOfRange}
                       onValueChange={onClosestChange}

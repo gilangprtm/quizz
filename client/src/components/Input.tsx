@@ -61,11 +61,12 @@ function integerFallback(
   value: number | string | null | undefined,
   minValue: number | string | undefined,
   maxValue: number | string | undefined,
-): number {
+  randomOnInvalid: boolean,
+): number | null {
   const min = finiteBound(minValue);
   const max = finiteBound(maxValue);
 
-  if (min !== null && max !== null) {
+  if (randomOnInvalid && min !== null && max !== null) {
     const lower = Math.ceil(Math.min(min, max));
     const upper = Math.floor(Math.max(min, max));
     if (lower <= upper) {
@@ -75,17 +76,9 @@ function integerFallback(
 
   const previous = formatInteger(value);
   const parsedPrevious = parseInteger(previous);
-  if (
-    parsedPrevious !== null &&
-    (min === null || parsedPrevious >= min) &&
-    (max === null || parsedPrevious <= max)
-  ) {
-    return parsedPrevious;
-  }
+  if (parsedPrevious !== null) return parsedPrevious;
 
-  if (min !== null) return Math.ceil(min);
-  if (max !== null) return Math.floor(max);
-  return 0;
+  return null;
 }
 
 export interface IntegerInputProps
@@ -93,6 +86,8 @@ export interface IntegerInputProps
   value: number | string | null | undefined;
   onValueChange: (value: number) => void;
   onValidityChange?: (isInteger: boolean) => void;
+  /** Randomly recover invalid values within min/max. Disabled by default (Should be only open in games). */
+  randomOnInvalid?: boolean;
 }
 
 /**
@@ -106,6 +101,7 @@ export const IntegerInput = forwardRef<HTMLInputElement, IntegerInputProps>(
       value,
       onValueChange,
       onValidityChange,
+      randomOnInvalid = false,
       min,
       max,
       step = 1,
@@ -158,10 +154,15 @@ export const IntegerInput = forwardRef<HTMLInputElement, IntegerInputProps>(
         onBlur={(event) => {
           focused.current = false;
           const parsed = parseInteger(event.currentTarget.value);
-          const nextValue = parsed ?? integerFallback(value, min, max);
-          setDraft(String(nextValue));
-          onValueChange(nextValue);
-          onValidityChange?.(true);
+          const nextValue = parsed ?? integerFallback(value, min, max, randomOnInvalid);
+          if (nextValue === null) {
+            setDraft('');
+            onValidityChange?.(false);
+          } else {
+            setDraft(String(nextValue));
+            onValueChange(nextValue);
+            onValidityChange?.(true);
+          }
           onBlur?.(event);
         }}
         onKeyDown={handleKeyDown}
