@@ -7,7 +7,7 @@ import { Input as FileInput } from '@/components/ui/input';
 import { invalidateAvatarCache } from '@/lib/avatars';
 import { cn } from '@/lib/utils';
 import AdminNav from '../../components/AdminNav';
-import { Input } from '../../components/Input';
+import { Input, IntegerInput } from '../../components/Input';
 import { useAuth } from '../../context/AuthContext';
 import { useDialog } from '../../context/DialogContext';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
@@ -356,21 +356,19 @@ export default function Settings() {
               description="Default timing and session limits for new games."
             >
               <FormRow>
-                <Input
+                <IntegerInput
                   label="Question time (seconds)"
-                  type="number"
                   min={5}
                   max={120}
                   value={cfg.questionTimeSec ?? 20}
-                  onChange={(e) => update('questionTimeSec', Number(e.target.value))}
+                  onValueChange={(value) => update('questionTimeSec', value)}
                 />
-                <Input
+                <IntegerInput
                   label="Max players per session"
-                  type="number"
                   min={2}
                   max={500}
                   value={cfg.maxPlayersPerSession ?? 50}
-                  onChange={(e) => update('maxPlayersPerSession', Number(e.target.value))}
+                  onValueChange={(value) => update('maxPlayersPerSession', value)}
                 />
               </FormRow>
 
@@ -378,14 +376,13 @@ export default function Settings() {
                 title="Results screen"
                 description="How long to show results before auto-advancing. Set to 0 for manual-only (admin clicks Next)."
               >
-                <Input
+                <IntegerInput
                   id="results-auto-advance-sec"
                   label="Duration (seconds)"
-                  type="number"
                   min={0}
                   max={60}
                   value={cfg.resultsAutoAdvanceSec ?? 5}
-                  onChange={(e) => update('resultsAutoAdvanceSec', Number(e.target.value))}
+                  onValueChange={(value) => update('resultsAutoAdvanceSec', value)}
                   noMargin
                 />
               </SettingsFieldGroup>
@@ -411,13 +408,12 @@ export default function Settings() {
               description="Points awarded for correct answers, speed, and streaks."
             >
               <SettingsFieldGroup title="Base score">
-                <Input
+                <IntegerInput
                   label="Default base score per question"
-                  type="number"
                   min={0}
                   step={50}
                   value={cfg.defaultBaseScore ?? 500}
-                  onChange={(e) => update('defaultBaseScore', Number(e.target.value))}
+                  onValueChange={(value) => update('defaultBaseScore', value)}
                   noMargin
                 />
               </SettingsFieldGroup>
@@ -427,22 +423,20 @@ export default function Settings() {
                 description="Extra points for correct answers based on answer order. 1st correct gets max, last gets min."
               >
                 <FormRow>
-                  <Input
+                  <IntegerInput
                     label="Max bonus (1st correct)"
-                    type="number"
                     min={0}
                     step={10}
                     value={cfg.speedBonusMax ?? 200}
-                    onChange={(e) => update('speedBonusMax', Number(e.target.value))}
+                    onValueChange={(value) => update('speedBonusMax', value)}
                     noMargin
                   />
-                  <Input
+                  <IntegerInput
                     label="Min bonus (last correct)"
-                    type="number"
                     min={0}
                     step={5}
                     value={cfg.speedBonusMin ?? 10}
-                    onChange={(e) => update('speedBonusMin', Number(e.target.value))}
+                    onValueChange={(value) => update('speedBonusMin', value)}
                     noMargin
                   />
                 </FormRow>
@@ -461,23 +455,21 @@ export default function Settings() {
                   onChange={(checked) => update('streakBonusEnabled', checked)}
                 />
                 <FormRow>
-                  <Input
+                  <IntegerInput
                     label="Streak starts at"
-                    type="number"
                     min={2}
                     max={10}
                     value={cfg.streakMinimum ?? 2}
-                    onChange={(e) => update('streakMinimum', Number(e.target.value))}
+                    onValueChange={(value) => update('streakMinimum', value)}
                     disabled={!streakEnabled}
                     hint="Minimum consecutive correct answers before bonus kicks in"
                   />
-                  <Input
+                  <IntegerInput
                     label="Bonus per streak level"
-                    type="number"
                     min={0}
                     step={10}
                     value={cfg.streakBonusBase ?? 50}
-                    onChange={(e) => update('streakBonusBase', Number(e.target.value))}
+                    onValueChange={(value) => update('streakBonusBase', value)}
                     disabled={!streakEnabled}
                     hint="e.g. 50 → 3-streak: +50, 4-streak: +100…"
                     noMargin
