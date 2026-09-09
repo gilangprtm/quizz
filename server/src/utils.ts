@@ -68,6 +68,7 @@ export function parseQuestionRow(q: DbQuestion) {
     correct_indices: q.correct_indices ? JSON.parse(q.correct_indices) : null,
     blanks: q.blanks ? JSON.parse(q.blanks) : null,
     geo: q.geo ? JSON.parse(q.geo) : null,
+    matches: q.matches ? JSON.parse(q.matches) : null,
     tags: q.tags ? JSON.parse(q.tags) : null,
   };
 }

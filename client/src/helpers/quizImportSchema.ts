@@ -148,6 +148,17 @@ export const QUIZ_IMPORT_EXAMPLE = {
       explanation: 'Closest pin wins — GeoGuessr-style, scored by real distance.',
       tags: ['geography', 'fun'],
     },
+    {
+      text: 'Match each capital to its country.',
+      options: ['Paris', 'Tokyo', 'Cairo'],
+      matches: ['France', 'Japan', 'Egypt'],
+      correctIndex: 0,
+      questionType: 'matching',
+      baseScore: 500,
+      timeSec: 30,
+      explanation: 'Partial credit is awarded per correctly matched pair.',
+      tags: ['geography', 'medium'],
+    },
   ],
 } satisfies ImportPayload;
 
@@ -206,7 +217,7 @@ const QUIZ_IMPORT_SCHEMA_OBJECT = {
           type: 'array',
           items: { type: 'string' },
           description:
-            'Answer choices; image URLs render as pictures; for ordering list items in correct order; use [] for open_text, closest_to, fill_blank, geo',
+            'Answer choices; image URLs render as pictures; for ordering list items in correct order; for matching, options are the left-column items; use [] for open_text, closest_to, fill_blank, geo',
         },
         correctIndex: {
           type: 'integer',
@@ -233,6 +244,7 @@ const QUIZ_IMPORT_SCHEMA_OBJECT = {
             'fill_blank',
             'ordering',
             'geo',
+            'matching',
           ],
           default: 'multiple_choice',
         },
@@ -264,6 +276,12 @@ const QUIZ_IMPORT_SCHEMA_OBJECT = {
             lng: { type: 'number' },
           },
           description: 'geo: correct map location',
+        },
+        matches: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'matching: correct right-hand item for each options[i] (left item); 2-6 pairs, index-aligned with options',
         },
         tags: {
           type: 'array',

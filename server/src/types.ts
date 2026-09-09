@@ -47,7 +47,8 @@ export type QuestionType =
   | 'closest_to'
   | 'fill_blank'
   | 'ordering'
-  | 'geo';
+  | 'geo'
+  | 'matching';
 
 /**
  * GeoGuessr-style config: the correct location as real-world coordinates.
@@ -77,6 +78,8 @@ export interface QuizQuestion {
   blanks?: string[][];
   /** geo: the correct point on the map image (GeoGuessr-style). */
   geo?: GeoPoint;
+  /** matching: correct right-hand item per `options[i]` (left item), 2-6 pairs. */
+  matches?: string[];
   /** Free-form labels (difficulty/topic), e.g. ["easy", "geography"]. */
   tags?: string[];
 }
@@ -135,6 +138,7 @@ export interface DbQuestion {
   media_type: string | null;
   blanks: string | null; // JSON string[][], used for fill_blank
   geo: string | null; // JSON GeoPoint {x,y}, used for geo
+  matches: string | null; // JSON string[], index-aligned with options, used for matching
   tags: string | null; // JSON string[] of free-form labels
 }
 

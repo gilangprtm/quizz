@@ -260,6 +260,23 @@ authRouter.get('/play-history/:sessionId', requireAuth, async (req, res) => {
   if (!session) return res.status(404).json({ error: 'Not found' });
 
   const players = await getRankedPlayers(sessionId);
+  const myIndex = players.findIndex((p) => p.id === player.id);
+  const myRank = myIndex >= 0 ? myIndex + 1 : null;
+
+  // Correct answers only leave the server once the game is actually over —
+  // otherwise a player still in the session could read this endpoint (or its
+  // raw network response) mid-game and get the full answer key.
+  if (session.status !== 'finished') {
+    return res.json({
+      session,
+      myPlayerId: player.id,
+      myRank,
+      players,
+      questions: [],
+      answers: [],
+    });
+  }
+
   const questions = await db.all<DbQuestion[]>(
     'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
     session.quiz_id,
@@ -268,9 +285,6 @@ authRouter.get('/play-history/:sessionId', requireAuth, async (req, res) => {
     'SELECT a.*, p.username FROM answers a JOIN players p ON p.id = a.player_id WHERE a.session_id = ?',
     sessionId,
   );
-
-  const myIndex = players.findIndex((p) => p.id === player.id);
-  const myRank = myIndex >= 0 ? myIndex + 1 : null;
 
   res.json({
     session,

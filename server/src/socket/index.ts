@@ -12,6 +12,7 @@ import {
   parseLatLng,
   parseStringArray,
   scoreGeo,
+  scoreMatching,
   scoreOrdering,
 } from '../questionScoring';
 import { invertPerm, seededPerm, seededShuffle } from '../shuffle';
@@ -30,10 +31,9 @@ import {
   type ActiveSession,
   activeSessions,
   buildLeaderboard,
-  createActiveSession,
+  getOrCreateActiveSession,
   getOrCreateAnsweredSet,
   getStateBySessionId,
-  sessionIdToPin,
 } from './gameState';
 import { endActiveSession, setSocketIo } from './sessionLifecycle';
 
@@ -99,20 +99,18 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
         return;
       }
 
-      const questions = await db.all<DbQuestion[]>(
-        'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
-        session.quiz_id,
-      );
       const quiz = await db.get<DbQuiz>('SELECT * FROM quizzes WHERE id = ?', session.quiz_id);
 
-      let state = activeSessions.get(session.pin);
-      if (!state) {
-        state = createActiveSession(session, questions, socket.id);
-        activeSessions.set(session.pin, state);
-        sessionIdToPin.set(session.id, session.pin);
-      } else {
-        state.adminSocketId = socket.id;
-      }
+      const state = await getOrCreateActiveSession(
+        session,
+        () =>
+          db.all<DbQuestion[]>(
+            'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
+            session.quiz_id,
+          ),
+        socket.id,
+      );
+      state.adminSocketId = socket.id;
 
       socket.join(`session:${session.id}`);
       socket.join(`admin:${session.id}`);
@@ -128,9 +126,9 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           totalScore: p.total_score,
           avatar: state?.playerAvatars?.get(p.id),
         })),
-        questionCount: questions.length,
+        questionCount: state.questions.length,
         gameSettings: state?.gameSettings ?? { jokersEnabled: { pass: false, fiftyFifty: false } },
-        quizIntro: quiz ? buildQuizIntro(quiz, questions) : undefined,
+        quizIntro: quiz ? buildQuizIntro(quiz, state.questions) : undefined,
       });
 
       // Restore the host's in-game view on reload / resume. Without this the
@@ -419,18 +417,14 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           socket.join(`session:${session.id}`);
           socket.join(`player:${playerId}`);
 
-          let state = activeSessions.get(pin);
-          if (!state) {
-            const questions = await db.all<DbQuestion[]>(
+          const wasActive = activeSessions.has(pin);
+          const state = await getOrCreateActiveSession(session, () =>
+            db.all<DbQuestion[]>(
               'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
               session.quiz_id,
-            );
-            state = createActiveSession(session, questions);
-            activeSessions.set(pin, state);
-            sessionIdToPin.set(session.id, pin);
-          } else {
-            state.status = session.status as ActiveSession['status'];
-          }
+            ),
+          );
+          if (wasActive) state.status = session.status as ActiveSession['status'];
 
           // Remove old socket mapping
           const oldSocketId = state.playerSockets.get(playerId);
@@ -493,18 +487,14 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
         socket.join(`session:${session.id}`);
         socket.join(`player:${playerId}`);
 
-        let state = activeSessions.get(pin);
-        if (!state) {
-          const questions = await db.all<DbQuestion[]>(
+        const wasActive = activeSessions.has(pin);
+        const state = await getOrCreateActiveSession(session, () =>
+          db.all<DbQuestion[]>(
             'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
             session.quiz_id,
-          );
-          state = createActiveSession(session, questions);
-          activeSessions.set(pin, state);
-          sessionIdToPin.set(session.id, pin);
-        } else {
-          state.status = session.status as ActiveSession['status'];
-        }
+          ),
+        );
+        if (wasActive) state.status = session.status as ActiveSession['status'];
 
         state.playerSockets.set(playerId, socket.id);
         state.socketPlayers.set(socket.id, playerId);
@@ -545,7 +535,7 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
         sessionId: number;
         questionId: number;
         chosenIndex: number;
-        chosenIndices?: number[];
+        chosenIndices?: Array<number | null>;
         playerId: number;
         chosenText?: string;
       }) => {
@@ -625,7 +615,8 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           }
         } else if (
           currentQ.question_type === 'fill_blank' ||
-          currentQ.question_type === 'ordering'
+          currentQ.question_type === 'ordering' ||
+          currentQ.question_type === 'matching'
         ) {
           // Partial-credit types: award a fraction of the base score, and the
           // speed/streak bonus only on a fully-correct answer.
@@ -637,10 +628,18 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
             const submitted = parseStringArray(chosenText);
             const { matched, total } = matchFillBlank(submitted, blanks);
             fraction = total > 0 ? matched / total : 0;
-          } else {
+          } else if (currentQ.question_type === 'ordering') {
             const n = (JSON.parse(currentQ.options) as string[]).length;
             const perm = seededPerm(n, currentQ.id);
-            const { matched, total } = scoreOrdering(chosenIndices ?? [], perm);
+            const { matched, total } = scoreOrdering((chosenIndices ?? []) as number[], perm);
+            fraction = total > 0 ? matched / total : 0;
+          } else {
+            // matching: `matches` doubles as both the right-item pool and the
+            // answer key — matches[i] is the correct right-hand text for
+            // options[i], and there's no separate distractor-rights concept.
+            const matches = parseStringArray(currentQ.matches);
+            const perm = seededPerm(matches.length, currentQ.id);
+            const { matched, total } = scoreMatching(chosenIndices ?? [], perm, matches, matches);
             fraction = total > 0 ? matched / total : 0;
           }
 
@@ -669,7 +668,7 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
             // Players click display slots; translate back to original indices.
             const correctIndices = JSON.parse(currentQ.correct_indices ?? '[]') as number[];
             const chosen = (chosenIndices ?? []).map((slot) =>
-              slotToOriginal(currentQ, state.answerSeed, slot),
+              slotToOriginal(currentQ, state.answerSeed, slot as number),
             );
             isCorrect =
               chosen.length === correctIndices.length &&
@@ -707,10 +706,13 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           fill_blank: -5,
           ordering: -6,
           geo: -7,
+          matching: -8,
         };
         const storedIndex = sentinelIndex[currentQ.question_type] ?? chosenIndex;
         const storedChosenIndices =
-          currentQ.question_type === 'multi_select' || currentQ.question_type === 'ordering'
+          currentQ.question_type === 'multi_select' ||
+          currentQ.question_type === 'ordering' ||
+          currentQ.question_type === 'matching'
             ? JSON.stringify(chosenIndices ?? [])
             : null;
 
@@ -1159,6 +1161,7 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
     const isOrdering = q.question_type === 'ordering';
     const isFillBlank = q.question_type === 'fill_blank';
     const isGeo = q.question_type === 'geo';
+    const isMatching = q.question_type === 'matching';
     const correctNumber =
       isClosestTo && q.correct_answer ? Number.parseInt(q.correct_answer, 10) : null;
     const correctGeo = isGeo ? parseLatLng(q.geo) : null;
@@ -1167,6 +1170,12 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
     // the actual item text they placed, top to bottom.
     const orderingItems = isOrdering ? (JSON.parse(q.options) as string[]) : [];
     const orderingPerm = isOrdering ? seededPerm(orderingItems.length, q.id) : [];
+
+    // For matching, translate each player's chosen right-column slots back into
+    // the actual right-item text they linked, per left item.
+    const matchingLeftItems = isMatching ? (JSON.parse(q.options) as string[]) : [];
+    const matchingRightItems = isMatching ? (JSON.parse(q.matches ?? '[]') as string[]) : [];
+    const matchingPerm = isMatching ? seededPerm(matchingRightItems.length, q.id) : [];
 
     const leaderboard = buildLeaderboard(players, state.playerAvatars).map((entry) => {
       const ans = answerMap.get(entry.playerId);
@@ -1190,6 +1199,19 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
       }
       const chosenBlanks = isFillBlank ? parseStringArray(ans?.chosen_text) : undefined;
 
+      let chosenPairs: Array<{ left: string; right: string | null }> | undefined;
+      if (isMatching && ans?.chosen_indices) {
+        const slots = JSON.parse(ans.chosen_indices) as Array<number | null>;
+        chosenPairs = matchingLeftItems.map((left, i) => {
+          const slot = slots[i];
+          const right =
+            slot !== null && slot !== undefined && slot >= 0 && slot < matchingPerm.length
+              ? (matchingRightItems[matchingPerm[slot]] ?? null)
+              : null;
+          return { left, right };
+        });
+      }
+
       return {
         ...entry,
         chosenIndex: ans?.chosen_index ?? null,
@@ -1198,6 +1220,7 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
         chosenNumber: Number.isNaN(chosenNumber ?? NaN) ? null : chosenNumber,
         chosenOrder,
         chosenBlanks,
+        chosenPairs,
         chosenPoint,
         distance,
         isCorrect: (ans?.is_correct ?? 0) === 1,
@@ -1263,6 +1286,9 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
           })()
         : undefined;
     const correctOrder = q.question_type === 'ordering' ? options : undefined;
+    const correctPairs = isMatching
+      ? matchingLeftItems.map((left, i) => ({ left, right: matchingRightItems[i] ?? '' }))
+      : undefined;
     const geoPoint = isGeo ? (parseLatLng(q.geo) ?? undefined) : undefined;
 
     const resultsPayload = {
@@ -1273,6 +1299,7 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
       correctAnswer: q.correct_answer,
       correctBlanks,
       correctOrder,
+      correctPairs,
       geo: geoPoint,
       imageUrl: isGeo ? normalizeImageUrl(q.image_url) : undefined,
       questionType: q.question_type,
@@ -1450,6 +1477,16 @@ function buildQuestionPayload(
       /* no blanks */
     }
     payload.blankCount = count;
+  }
+
+  if (q.question_type === 'matching') {
+    // Left column (payload.options) stays in fixed authoring order — it's not
+    // secret. Shuffle only the right column, seeded by question id (stable
+    // across reconnects, matching ordering's choice), and never send it
+    // aligned with the correct left index.
+    const rightItems = JSON.parse(q.matches ?? '[]') as string[];
+    const rightPerm = seededPerm(rightItems.length, q.id);
+    payload.rightOptions = rightPerm.map((i) => rightItems[i]);
   }
 
   return payload;

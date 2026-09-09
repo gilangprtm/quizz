@@ -143,6 +143,8 @@ export function QuestionCanvas({ q, ops, onChange }: Props) {
 
       {type === 'ordering' && <OrderingItems q={q} ops={ops} />}
 
+      {type === 'matching' && <MatchingPairs q={q} ops={ops} />}
+
       {type === 'geo' && (
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
@@ -339,6 +341,66 @@ function OrderingItems({ q, ops }: { q: ImportQuestion; ops: ReturnType<typeof q
       >
         <Plus className="size-3.5" /> Add Item
       </Button>
+    </div>
+  );
+}
+
+function MatchingPairs({ q, ops }: { q: ImportQuestion; ops: ReturnType<typeof questionOps> }) {
+  const opts = q.options ?? [];
+  const matches = q.matches ?? [];
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium text-muted-foreground">
+        Pairs (2–6){' '}
+        <span className="font-normal text-muted-foreground/70">
+          — players match each left item to its right item; the right column is shuffled for them
+        </span>
+      </p>
+      {opts.map((left, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: pair rows are positional
+        <div key={`pair-${i}`} className="mb-2 flex items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-border text-[0.8rem] font-extrabold text-muted-foreground">
+            {i + 1}
+          </span>
+          <Input
+            className="mb-0 flex-1"
+            noMargin
+            value={left}
+            onChange={(e) => ops.updateMatchLeft(i, e.target.value)}
+            placeholder={`Left ${i + 1}`}
+          />
+          <span className="text-muted-foreground">↔</span>
+          <Input
+            className="mb-0 flex-1"
+            noMargin
+            value={matches[i] ?? ''}
+            onChange={(e) => ops.updateMatchRight(i, e.target.value)}
+            placeholder={`Right ${i + 1}`}
+          />
+          {opts.length > 2 && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => ops.removeMatchPair(i)}
+              title="Remove pair"
+            >
+              <X className="size-4" />
+            </Button>
+          )}
+        </div>
+      ))}
+      {opts.length < 6 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-1"
+          onClick={() => ops.addMatchPair()}
+        >
+          <Plus className="size-3.5" /> Add Pair
+        </Button>
+      )}
     </div>
   );
 }

@@ -43,6 +43,7 @@ interface Props {
   onFillSubmit: (answers: string[]) => void;
   onOrderSubmit: (order: number[]) => void;
   onGeoSubmit: (lat: number, lng: number) => void;
+  onMatchingSubmit: (links: Array<number | null>) => void;
 }
 
 export function QuestionScreen({
@@ -72,6 +73,7 @@ export function QuestionScreen({
   onFillSubmit,
   onOrderSubmit,
   onGeoSubmit,
+  onMatchingSubmit,
 }: Props) {
   const isTrueFalse = question.questionType === 'true_false';
   const isOpenText = question.questionType === 'open_text';
@@ -81,6 +83,7 @@ export function QuestionScreen({
   const isFillBlank = question.questionType === 'fill_blank';
   const isOrdering = question.questionType === 'ordering';
   const isGeo = question.questionType === 'geo';
+  const isMatching = question.questionType === 'matching';
   const rangeMin = question.rangeMin ?? 0;
   const rangeMax = question.rangeMax ?? 100;
 
@@ -97,6 +100,8 @@ export function QuestionScreen({
   const [closestInputIsInteger, setClosestInputIsInteger] = useState(() =>
     Number.isInteger(closestValue),
   );
+  const [selectedLeft, setSelectedLeft] = useState<number | null>(null);
+  const [links, setLinks] = useState<Array<number | null>>(() => question.options.map(() => null));
   const reorder = usePointerReorder(
     (from, to) => setOrder((prev) => arrayMove(prev, from, to)),
     localSubmitted,
@@ -112,6 +117,8 @@ export function QuestionScreen({
     setLocalSubmitted(false);
     setPinPoint(null);
     setClosestInputIsInteger(Number.isInteger(closestValue));
+    setSelectedLeft(null);
+    setLinks(question.options.map(() => null));
   }
 
   const hasAnswered =
@@ -138,6 +145,30 @@ export function QuestionScreen({
     if (localSubmitted || !pinPoint) return;
     setLocalSubmitted(true);
     onGeoSubmit(pinPoint.lat, pinPoint.lng);
+  }
+
+  function tapLeft(i: number) {
+    if (localSubmitted) return;
+    setSelectedLeft((cur) => (cur === i ? null : i));
+  }
+
+  function tapRight(slot: number) {
+    if (localSubmitted || selectedLeft === null) return;
+    const left = selectedLeft;
+    setLinks((prev) => {
+      const next = [...prev];
+      // Each right slot can serve at most one left item — clear it elsewhere first.
+      for (let i = 0; i < next.length; i++) if (next[i] === slot) next[i] = null;
+      next[left] = slot;
+      return next;
+    });
+    setSelectedLeft(null);
+  }
+
+  function submitMatching() {
+    if (localSubmitted) return;
+    setLocalSubmitted(true);
+    onMatchingSubmit(links);
   }
 
   return (
@@ -547,6 +578,94 @@ export function QuestionScreen({
                 </span>
               ) : (
                 'Tap the map to place your pin'
+              )}
+            </Button>
+          </div>
+        ) : isMatching ? (
+          <div className="p-5">
+            <p className="mb-3 text-center text-sm" style={{ color: 'var(--text2)' }}>
+              Tap a left item, then tap its match on the right
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-2">
+                {question.options.map((left, i) => {
+                  const linkedSlot = links[i];
+                  const isSelected = selectedLeft === i;
+                  return (
+                    <button
+                      // biome-ignore lint/suspicious/noArrayIndexKey: left items may repeat text
+                      key={`left-${i}`}
+                      type="button"
+                      disabled={localSubmitted}
+                      onClick={() => tapLeft(i)}
+                      className={cn(
+                        'flex items-center gap-2 rounded-lg border p-3 text-left transition-all disabled:cursor-default',
+                        isSelected
+                          ? 'border-primary ring-2 ring-primary'
+                          : linkedSlot !== null
+                            ? 'border-transparent text-white'
+                            : 'border-border bg-[var(--surface2)]',
+                      )}
+                      style={
+                        linkedSlot !== null && !isSelected ? { background: quadColor(i) } : undefined
+                      }
+                    >
+                      <span
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.8rem] font-extrabold text-white"
+                        style={{ background: quadColor(i) }}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="flex-1">
+                        <OptionText value={left} imgClassName="option-img-sm" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-col gap-2">
+                {(question.rightOptions ?? []).map((right, slot) => {
+                  const linkedLeft = links.indexOf(slot);
+                  return (
+                    <button
+                      // biome-ignore lint/suspicious/noArrayIndexKey: right column is a shuffled, possibly-duplicate list
+                      key={`right-${slot}`}
+                      type="button"
+                      disabled={localSubmitted}
+                      onClick={() => tapRight(slot)}
+                      className={cn(
+                        'flex items-center gap-2 rounded-lg border p-3 text-left transition-all disabled:cursor-default',
+                        linkedLeft !== -1 ? 'border-transparent text-white' : 'border-border bg-[var(--surface2)]',
+                      )}
+                      style={linkedLeft !== -1 ? { background: quadColor(linkedLeft) } : undefined}
+                    >
+                      <span className="flex-1">
+                        <OptionText value={right} imgClassName="option-img-sm" />
+                      </span>
+                      {linkedLeft !== -1 && (
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-black/20 text-[0.8rem] font-extrabold text-white">
+                          {linkedLeft + 1}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="default"
+              size="lg"
+              className="mt-4 w-full"
+              onClick={submitMatching}
+              disabled={localSubmitted}
+            >
+              {localSubmitted ? (
+                'Submitted!'
+              ) : (
+                <span className="inline-flex items-center gap-1.5">
+                  Submit Matches <ArrowRight className="size-4" />
+                </span>
               )}
             </Button>
           </div>

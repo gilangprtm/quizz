@@ -14,6 +14,7 @@ interface Props {
     | 'correctIndices'
     | 'correctBlanks'
     | 'correctOrder'
+    | 'correctPairs'
     | 'geo'
     | 'imageUrl'
     | 'options'
@@ -42,6 +43,7 @@ export function QuestionReveal({
   const isFillBlank = results.questionType === 'fill_blank';
   const isOrdering = results.questionType === 'ordering';
   const isGeo = results.questionType === 'geo';
+  const isMatching = results.questionType === 'matching';
 
   return (
     <>
@@ -68,6 +70,23 @@ export function QuestionReveal({
               </li>
             ))}
           </ol>
+        </div>
+      ) : isMatching ? (
+        <div className="result-reveal-correct rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+          <p className="mb-2 text-[0.78rem] text-muted-foreground">Correct pairs</p>
+          <ul className="space-y-1">
+            {(results.correctPairs ?? []).map((p, i) => (
+              <li
+                // biome-ignore lint/suspicious/noArrayIndexKey: left items may repeat text
+                key={`pair-${i}`}
+                className="flex items-center gap-2 font-semibold text-emerald-500"
+              >
+                <span>{p.left}</span>
+                <span className="text-muted-foreground">→</span>
+                <span>{p.right}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : isGeo ? (
         <div className="result-reveal-correct rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">

@@ -23,6 +23,16 @@ type Phase = 'question' | 'reveal';
 
 const norm = (s: string) => s.trim().toLowerCase();
 
+/** Plain (unseeded) Fisher-Yates — fine for a local, non-synced preview. */
+function shuffle<T>(items: T[]): T[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 /**
  * Solo, socket-free preview of a quiz — plays the player's view locally so a
  * creator can step through every question (and its answer reveal) without
@@ -99,6 +109,10 @@ export function QuizPreviewModal({ title, questions, onClose, theme }: Props) {
       mediaUrl: q.mediaUrl,
       mediaType: q.mediaType,
       blankCount: q.blanks?.length ?? countBlanks(q.text),
+      // Shuffle so the preview matches what a player actually sees — the real
+      // game never sends the right column in options order (see seededPerm
+      // in buildQuestionPayload), which would otherwise give away every pair.
+      rightOptions: type === 'matching' ? shuffle(q.matches ?? []) : undefined,
     };
   }, [q, index, questions.length, type]);
 
@@ -148,6 +162,7 @@ export function QuizPreviewModal({ title, questions, onClose, theme }: Props) {
     | 'correctIndices'
     | 'correctBlanks'
     | 'correctOrder'
+    | 'correctPairs'
     | 'geo'
     | 'imageUrl'
     | 'options'
@@ -162,6 +177,10 @@ export function QuizPreviewModal({ title, questions, onClose, theme }: Props) {
     correctAnswer: q.correctAnswer ?? null,
     correctBlanks: q.blanks?.map((b) => b[0] ?? ''),
     correctOrder: q.options,
+    correctPairs:
+      type === 'matching'
+        ? (q.options ?? []).map((left, i) => ({ left, right: q.matches?.[i] ?? '' }))
+        : undefined,
     geo: q.geo ?? undefined,
     imageUrl: q.imageUrl,
     rangeMin: q.rangeMin,
@@ -260,6 +279,7 @@ export function QuizPreviewModal({ title, questions, onClose, theme }: Props) {
               setChosenPoint({ lat, lng });
               reveal();
             }}
+            onMatchingSubmit={() => reveal()}
           />
         ) : (
           <PageVCenter>
@@ -328,6 +348,7 @@ function QuestionScreenPreview({
   onFillSubmit: (a: string[]) => void;
   onOrderSubmit: (o: number[]) => void;
   onGeoSubmit: (lat: number, lng: number) => void;
+  onMatchingSubmit: (links: Array<number | null>) => void;
 }) {
   return (
     <QuestionScreen

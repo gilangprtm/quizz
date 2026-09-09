@@ -38,6 +38,13 @@ export function normalizeQuestion(q: ImportQuestion): ImportQuestion {
       };
     }
   }
+  if (type === 'matching') {
+    const opts = next.options ?? [];
+    const m = next.matches ?? [];
+    if (m.length !== opts.length) {
+      next = { ...next, matches: Array.from({ length: opts.length }, (_, i) => m[i] ?? '') };
+    }
+  }
   return next;
 }
 
@@ -99,6 +106,14 @@ export function questionOps(q: ImportQuestion, onChange: ChangeFn) {
       onChange('correctIndices', undefined);
       onChange('mediaType', undefined);
       onChange('mediaUrl', undefined);
+    } else if (t === 'matching') {
+      if ((q.options ?? []).length < 2) {
+        onChange('options', ['', '']);
+        onChange('matches', ['', '']);
+      } else if (!q.matches || q.matches.length !== q.options.length) {
+        onChange('matches', Array.from({ length: q.options.length }, () => ''));
+      }
+      onChange('correctIndices', undefined);
     } else {
       if ((q.options ?? []).length < 2) onChange('options', ['', '', '', '']);
       onChange('correctIndices', undefined);
@@ -146,6 +161,38 @@ export function questionOps(q: ImportQuestion, onChange: ChangeFn) {
     onChange('options', arrayMove(q.options ?? [], from, to));
   }
 
+  // Matching helpers — options[i] is the left item, matches[i] its correct
+  // right-hand match; the two arrays are always kept the same length.
+  function updateMatchLeft(i: number, value: string) {
+    const opts = [...(q.options ?? [])];
+    opts[i] = value;
+    onChange('options', opts);
+  }
+
+  function updateMatchRight(i: number, value: string) {
+    const m = [...(q.matches ?? [])];
+    m[i] = value;
+    onChange('matches', m);
+  }
+
+  function addMatchPair() {
+    if ((q.options ?? []).length >= 6) return;
+    onChange('options', [...(q.options ?? []), '']);
+    onChange('matches', [...(q.matches ?? []), '']);
+  }
+
+  function removeMatchPair(i: number) {
+    if ((q.options ?? []).length <= 2) return;
+    onChange(
+      'options',
+      (q.options ?? []).filter((_, idx) => idx !== i),
+    );
+    onChange(
+      'matches',
+      (q.matches ?? []).filter((_, idx) => idx !== i),
+    );
+  }
+
   function setBlankAccepted(bi: number, csv: string) {
     const count = countBlanks(q.text);
     const next: string[][] = Array.from({ length: count }, (_, i) =>
@@ -181,6 +228,10 @@ export function questionOps(q: ImportQuestion, onChange: ChangeFn) {
     removeOption,
     toggleCorrectIndex,
     reorderOptions,
+    updateMatchLeft,
+    updateMatchRight,
+    addMatchPair,
+    removeMatchPair,
     setBlankAccepted,
     setImage,
     setYouTube,

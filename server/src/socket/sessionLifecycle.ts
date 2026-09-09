@@ -14,6 +14,10 @@ export function setSocketIo(server: SocketServer): void {
   io = server;
 }
 
+export function getSocketIo(): SocketServer | null {
+  return io;
+}
+
 function clearSessionTimers(state: ActiveSession): void {
   if (state.questionTimer) {
     clearTimeout(state.questionTimer);

@@ -264,6 +264,17 @@ export default function Game() {
     });
   }
 
+  function submitMatching(links: Array<number | null>) {
+    if (!question || phase !== 'question') return;
+    socket.emit('player:answer', {
+      sessionId: effectiveSessionId,
+      questionId: question.questionId,
+      chosenIndex: -8,
+      chosenIndices: links,
+      playerId,
+    });
+  }
+
   function commitStreakOnReveal() {
     if (!answerResult || answerResult.wasPassJoker) return;
     setStreak(answerResult.isCorrect ? (answerResult.streak ?? 0) : 0);
@@ -322,6 +333,7 @@ export default function Game() {
         onFillSubmit={submitFill}
         onOrderSubmit={submitOrder}
         onGeoSubmit={submitGeo}
+        onMatchingSubmit={submitMatching}
       />
     );
 

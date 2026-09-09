@@ -94,6 +94,45 @@ export function getStateBySessionId(sessionId: number): ActiveSession | undefine
   return pin ? activeSessions.get(pin) : undefined;
 }
 
+// pin → in-flight creation promise, so concurrent joiners to a brand-new
+// session all await the SAME ActiveSession instead of racing to create one.
+const pendingSessionCreation = new Map<string, Promise<ActiveSession>>();
+
+/**
+ * Get the active session for `pin`, creating it if this is the first joiner.
+ * Many players can hit `player:join` for the same brand-new session within
+ * the same tick; each of them needs to `await` a questions fetch before it
+ * would otherwise create+store the state, and with no lock that race lets
+ * several of them each build their own ActiveSession and clobber each
+ * other's entry in `activeSessions` — players attached to a clobbered
+ * (orphaned) instance silently fall out of `playerSockets`/`socketPlayers`,
+ * so their answers get dropped by later reads of the (different) live state.
+ * Memoizing the creation promise per pin serializes it: everyone gets the one
+ * instance that actually ends up in the map.
+ */
+export async function getOrCreateActiveSession(
+  session: Pick<DbSession, 'id' | 'quiz_id' | 'pin' | 'status' | 'current_question_index'>,
+  fetchQuestions: () => Promise<DbQuestion[]>,
+  adminSocketId = '',
+): Promise<ActiveSession> {
+  const existing = activeSessions.get(session.pin);
+  if (existing) return existing;
+
+  let pending = pendingSessionCreation.get(session.pin);
+  if (!pending) {
+    pending = (async () => {
+      const questions = await fetchQuestions();
+      const state = createActiveSession(session, questions, adminSocketId);
+      activeSessions.set(session.pin, state);
+      sessionIdToPin.set(session.id, session.pin);
+      return state;
+    })();
+    pendingSessionCreation.set(session.pin, pending);
+    pending.finally(() => pendingSessionCreation.delete(session.pin));
+  }
+  return pending;
+}
+
 /** Get (or lazily create) the set of playerIds who answered the given question. */
 export function getOrCreateAnsweredSet(state: ActiveSession, questionId: number): Set<number> {
   let answered = state.answeredPlayers.get(questionId);
