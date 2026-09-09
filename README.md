@@ -115,7 +115,7 @@ Auto-advance between questions is configurable (default: manual).
 - **User management** (super admin) — list users, ban/unban, reset passwords, delete
 - **Registration** can be restricted to a configured email domain
 - **Session history** — past games with per-player answers, force-end running sessions
-- **Settings UI** — app name/subtitle, timing, scoring, leaderboard visibility, max players (default 50), auto-advance
+- **Settings UI** — app name/subtitle, timing, scoring, leaderboard visibility, max players (default 300), auto-advance
 - **Avatar packs** — bulk-upload avatar images for players to pick from
 
 ## Development
@@ -130,6 +130,38 @@ pnpm dev
 
 - App: http://localhost:5173
 - Admin: http://localhost:5173/admin (default: `admin` / `admin`)
+
+## Load testing
+
+Manual only — not run in CI. Use it before a big event, or after touching
+`player:join`/`player:answer`/anything on the DB write path, to see how the
+server actually holds up under many concurrent players.
+
+```sh
+cd server
+pnpm load-test --url http://localhost:3000 \
+  --email admin --password <admin password> \
+  --players 100 --sessions 1 --questions 5 --time 15
+```
+
+Flags: `--players` (bots per session), `--sessions` (concurrent games),
+`--questions`, `--time` (seconds/question), `--answer-delay` (max random
+pre-answer delay, ms), `--metrics-interval` (ms between live metrics polls),
+`--keep` (skip cleanup — leave the generated quiz/sessions in place).
+
+It logs in as admin, creates a throwaway quiz, spins up the bots over real
+socket.io connections, plays the game to completion, and prints join/answer
+latency percentiles plus a peak event-loop-lag / SQLite-write-latency / memory
+summary — then deletes what it created (unless `--keep`).
+
+Live server health during a run — or anytime — is also available directly:
+`GET /api/admin/metrics` (super admin token required). Returns event loop
+lag, memory, a SQLite write-latency ping, connected socket count, and
+active session/player counts. It's a point-in-time snapshot only — nothing
+is persisted or graphed.
+
+Numbers are hardware-specific — run it against the box you actually care
+about, not a laptop, if the result needs to mean something.
 
 ## Stack
 

@@ -48,6 +48,37 @@ export function scoreOrdering(order: number[], perm: number[]): { matched: numbe
   return { matched, total };
 }
 
+/**
+ * Score a matching answer. `chosenSlots[leftIndex]` is the right-column display
+ * slot the player linked to `options[leftIndex]` (or null if left unlinked);
+ * `perm[slot]` is the original right-item index shown at that slot. A left item
+ * counts as matched when the right-hand text it resolves to equals
+ * `correctMatches[leftIndex]`. Unlike `scoreOrdering`, no full/valid permutation
+ * is required — players can leave items unlinked; out-of-range or null slots
+ * simply don't count as matched. Each slot can credit at most one left item —
+ * otherwise a quiz with duplicate right-hand answers would let a single
+ * correct guess be replayed against every left item that shares that answer.
+ */
+export function scoreMatching(
+  chosenSlots: Array<number | null>,
+  perm: number[],
+  rightItems: string[],
+  correctMatches: string[],
+): { matched: number; total: number } {
+  const total = correctMatches.length;
+  const usedSlots = new Set<number>();
+  let matched = 0;
+  for (let i = 0; i < total; i++) {
+    const slot = chosenSlots[i];
+    if (slot === null || slot === undefined) continue;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= perm.length) continue;
+    if (usedSlots.has(slot)) continue;
+    usedSlots.add(slot);
+    if (rightItems[perm[slot]] === correctMatches[i]) matched++;
+  }
+  return { matched, total };
+}
+
 interface LatLng {
   lat: number;
   lng: number;

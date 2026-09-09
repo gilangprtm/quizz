@@ -85,6 +85,26 @@ function YourAnswer({ entry, results }: { entry: LeaderboardEntry; results: Ques
       body = idxs.length ? idxs.map((i) => opts[i]).join(', ') : <em>No answer</em>;
       break;
     }
+    case 'matching': {
+      const pairs = entry.chosenPairs ?? [];
+      const correct = results.correctPairs ?? [];
+      body = pairs.length ? (
+        <ul className="space-y-0.5">
+          {pairs.map((p, i) => {
+            const isRowCorrect = p.right !== null && p.right === correct[i]?.right;
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: pairs are positional
+              <li key={i} className={isRowCorrect ? 'text-emerald-400' : 'text-rose-400'}>
+                {p.left} → {p.right ?? <em>unlinked</em>}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <em>No answer</em>
+      );
+      break;
+    }
     default:
       body =
         entry.chosenIndex != null && entry.chosenIndex >= 0 ? (

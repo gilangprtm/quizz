@@ -4,6 +4,7 @@ import {
   Diamond,
   Gauge,
   Hexagon,
+  Link2,
   ListChecks,
   type LucideIcon,
   MapPin,
@@ -145,6 +146,7 @@ export const QUESTION_TYPE_META: Record<QuestionType, { label: string; icon: Luc
   fill_blank: { label: 'Fill the Blank', icon: SquareDashed },
   ordering: { label: 'Put in Order', icon: ArrowUpDown },
   geo: { label: 'Locate on Map', icon: MapPin },
+  matching: { label: 'Match Pairs', icon: Link2 },
 };
 
 /** Format a duration in seconds as `45s`, `2m`, or `2m 30s`. */
@@ -258,6 +260,18 @@ export function validateQuizQuestions(questions: ImportQuestion[]): string | nul
         return `Question ${i + 1}: click the correct location on the map`;
       }
     }
+    if (type === 'matching') {
+      if (q.options.length < 2 || q.options.length > 6) {
+        return `Question ${i + 1} needs 2-6 pairs`;
+      }
+      const matches = q.matches ?? [];
+      if (matches.length !== q.options.length) {
+        return `Question ${i + 1}: every left item needs a matching right item`;
+      }
+      if (q.options.some((o) => !o.trim()) || matches.some((m) => !m.trim())) {
+        return `Question ${i + 1} has empty pair text`;
+      }
+    }
   }
   return null;
 }
@@ -285,6 +299,7 @@ export function mapDbQuestionToImport(q: {
   media_type?: 'audio' | 'video' | null;
   blanks?: string[][] | null;
   geo?: GeoPoint | null;
+  matches?: string[] | null;
   tags?: string[] | null;
 }): QuestionWithKey {
   return withKey({
@@ -304,6 +319,7 @@ export function mapDbQuestionToImport(q: {
     mediaType: q.media_type ?? undefined,
     blanks: q.blanks ?? undefined,
     geo: q.geo ?? undefined,
+    matches: q.matches ?? undefined,
     tags: q.tags ?? undefined,
   });
 }

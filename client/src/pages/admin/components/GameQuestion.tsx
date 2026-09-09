@@ -1,12 +1,13 @@
 import { QuadOptionGrid } from '@/components/game/QuadOptionGrid';
 import { TimerBar } from '@/components/game/TimerBar';
 import { MainContent } from '@/components/layout';
+import { OptionText } from '@/components/OptionText';
 import { QuestionImage } from '@/components/QuestionImage';
 import { QuestionMedia } from '@/components/QuestionMedia';
 import { QuestionText } from '@/components/QuestionText';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { hasQuestionImage } from '@/helpers';
+import { hasQuestionImage, quadColor } from '@/helpers';
 import type { QuestionPayload } from '../../../types';
 
 interface Props {
@@ -27,8 +28,12 @@ export function GameQuestion({
   onFinishQuestion,
 }: Props) {
   const showImage = hasQuestionImage(question.imageUrl);
+  // Only these types are "pick a tile" answers — ordering/geo/fill_blank/open_text/closest_to
+  // don't have a single correct option to highlight, so they get their own message below.
   const isOptionBased =
-    question.questionType !== 'open_text' && question.questionType !== 'closest_to';
+    question.questionType === 'multiple_choice' ||
+    question.questionType === 'true_false' ||
+    question.questionType === 'multi_select';
 
   const options =
     question.questionType === 'true_false' && question.options.length === 0
@@ -106,6 +111,82 @@ export function GameQuestion({
             <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-center">
               <p className="text-sm text-muted-foreground">
                 Open-text question — players type their answer
+              </p>
+            </div>
+          )}
+          {question.questionType === 'ordering' && (
+            <div className="mx-auto flex w-full max-w-xl flex-col gap-2">
+              <p className="mb-1 text-center text-sm text-muted-foreground">
+                Ordering question — players are dragging these into the correct order
+              </p>
+              {options.map((opt, pos) => (
+                <div
+                  key={opt}
+                  className="flex items-center gap-2 rounded-lg border border-border bg-[var(--surface2)] p-3"
+                >
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.8rem] font-extrabold text-white"
+                    style={{ background: quadColor(pos) }}
+                  >
+                    {pos + 1}
+                  </span>
+                  <span className="flex-1">
+                    <OptionText value={opt} imgClassName="option-img-sm" />
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {question.questionType === 'matching' && (
+            <div className="mx-auto grid w-full max-w-2xl grid-cols-2 gap-6">
+              <div className="flex flex-col gap-2">
+                <p className="mb-1 text-center text-xs text-muted-foreground">Left</p>
+                {options.map((opt, i) => (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: left items may repeat text
+                    key={`left-${i}`}
+                    className="flex items-center gap-2 rounded-lg border border-border bg-[var(--surface2)] p-3"
+                  >
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[0.8rem] font-extrabold text-white"
+                      style={{ background: quadColor(i) }}
+                    >
+                      {i + 1}
+                    </span>
+                    <span className="flex-1">
+                      <OptionText value={opt} imgClassName="option-img-sm" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-col gap-2">
+                <p className="mb-1 text-center text-xs text-muted-foreground">Right (shuffled)</p>
+                {(question.rightOptions ?? []).map((opt, i) => (
+                  <div
+                    // biome-ignore lint/suspicious/noArrayIndexKey: shuffled right column, values may repeat
+                    key={`right-${i}`}
+                    className="flex items-center gap-2 rounded-lg border border-border bg-[var(--surface2)] p-3"
+                  >
+                    <span className="flex-1">
+                      <OptionText value={opt} imgClassName="option-img-sm" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {question.questionType === 'geo' && (
+            <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                Map question — players drop a pin on the map
+              </p>
+            </div>
+          )}
+          {question.questionType === 'fill_blank' && (
+            <div className="rounded-xl border border-border bg-muted/50 px-4 py-3 text-center">
+              <p className="text-sm text-muted-foreground">
+                Fill-in-the-blank question — players fill in {question.blankCount ?? 0} blank
+                {question.blankCount === 1 ? '' : 's'}
               </p>
             </div>
           )}

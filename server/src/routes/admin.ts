@@ -3,6 +3,7 @@ import { saveAvatarsFromDataUrls, deleteAvatarByUrl } from '../avatars';
 import { config, saveConfig, toPublicConfig } from '../config';
 import { db, getRankedPlayers } from '../db';
 import { getRequestUser, requireAuth, requireSuperAdmin } from '../middleware';
+import { getMetricsSnapshot } from '../metrics';
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../passwords';
 import { terminateSessionById } from '../socket/sessionLifecycle';
 import { THEME_IDS } from '../types';
@@ -74,6 +75,12 @@ adminRouter.post('/admins/:id/reset-password', requireSuperAdmin, async (req, re
   );
   if (result.changes === 0) return res.status(404).json({ error: 'Admin not found' });
   res.json({ success: true });
+});
+
+// ─── Metrics (super admin only — capacity/load monitoring) ───────────────────
+
+adminRouter.get('/metrics', requireSuperAdmin, async (_req, res) => {
+  res.json(await getMetricsSnapshot());
 });
 
 // ─── Config (super admin only — branding + global settings) ──────────────────
@@ -163,7 +170,7 @@ async function insertQuestion(
 ): Promise<void> {
   const media = normalizeQuestionMedia(q.mediaType, q.mediaUrl);
   await db.run(
-    'INSERT INTO questions (quiz_id, text, options, correct_index, base_score, time_sec, order_index, image_url, question_type, correct_answer, correct_indices, explanation, range_min, range_max, media_url, media_type, blanks, geo, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO questions (quiz_id, text, options, correct_index, base_score, time_sec, order_index, image_url, question_type, correct_answer, correct_indices, explanation, range_min, range_max, media_url, media_type, blanks, geo, tags, matches) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     quizId,
     q.text,
     JSON.stringify(q.options),
@@ -183,6 +190,7 @@ async function insertQuestion(
     q.blanks ? JSON.stringify(q.blanks) : null,
     q.geo ? JSON.stringify(q.geo) : null,
     normalizeTags(q.tags),
+    q.matches ? JSON.stringify(q.matches) : null,
   );
 }
 

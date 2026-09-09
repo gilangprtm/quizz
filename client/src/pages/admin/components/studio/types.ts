@@ -17,4 +17,5 @@ export const TYPE_SHORT: Record<QuestionType, string> = {
   fill_blank: 'Blank',
   ordering: 'Order',
   geo: 'Map',
+  matching: 'Match',
 };

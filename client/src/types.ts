@@ -6,7 +6,8 @@ export type QuestionType =
   | 'closest_to'
   | 'fill_blank'
   | 'ordering'
-  | 'geo';
+  | 'geo'
+  | 'matching';
 
 /** GeoGuessr-style correct location as real-world coordinates. */
 export interface GeoPoint {
@@ -73,6 +74,7 @@ export interface Question {
   media_type?: 'audio' | 'video';
   blanks?: string[][] | null;
   geo?: GeoPoint | null;
+  matches?: string[] | null;
   tags?: string[] | null;
 }
 
@@ -115,6 +117,8 @@ export interface LeaderboardEntry {
   chosenBlanks?: string[] | null;
   /** geo: where this player dropped their pin (lat/lng). */
   chosenPoint?: { lat: number; lng: number } | null;
+  /** matching: this player's submitted left-to-right links (right null if unlinked). */
+  chosenPairs?: Array<{ left: string; right: string | null }> | null;
   distance?: number | null;
   isCorrect: boolean;
   questionScore: number;
@@ -140,6 +144,8 @@ export interface QuestionPayload {
   mediaType?: 'audio' | 'video';
   /** fill_blank: number of blanks the player must fill. */
   blankCount?: number;
+  /** matching: the shuffled right column shown during the live question. */
+  rightOptions?: string[];
 }
 
 export interface QuestionResults {
@@ -152,6 +158,8 @@ export interface QuestionResults {
   correctBlanks?: string[];
   /** ordering: the items in their correct order. */
   correctOrder?: string[];
+  /** matching: the correct left-to-right pairing, in options order. */
+  correctPairs?: Array<{ left: string; right: string }>;
   /** geo: the correct point + the map image it applies to. */
   geo?: GeoPoint;
   imageUrl?: string;
@@ -228,6 +236,8 @@ export interface ImportQuestion {
   mediaType?: 'audio' | 'video';
   blanks?: string[][];
   geo?: GeoPoint;
+  /** matching: correct right-hand item per `options[i]` (left item), 2-6 pairs. */
+  matches?: string[];
   tags?: string[];
 }
 
