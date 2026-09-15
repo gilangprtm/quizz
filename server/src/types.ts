@@ -89,7 +89,34 @@ export interface QuizImportPayload {
   description?: string;
   coverImage?: string;
   theme?: ThemeId;
+  /** The language the quiz is authored in (locale code, e.g. "fr"). Defaults to French. */
+  language?: string;
   questions: QuizQuestion[];
+}
+
+/** One question's translated display text for a given locale. */
+export interface QuizTranslationQuestion {
+  text: string;
+  options: string[];
+  matches?: string[];
+  explanation?: string;
+}
+
+export interface QuizTranslationPayload {
+  locale: string;
+  questions: QuizTranslationQuestion[];
+}
+
+export interface TranslationRow {
+  id: number;
+  quiz_id: number;
+  locale: string;
+  order_index: number;
+  question_type: QuestionType;
+  text: string;
+  options: string; // JSON string[]
+  matches: string | null; // JSON string[]
+  explanation: string | null;
 }
 
 /** Lobby intro shown to players on the waiting screen before the game starts. */
@@ -112,6 +139,7 @@ export interface DbQuiz {
   description: string;
   cover_image: string | null;
   theme: string | null;
+  language: string;
   created_at: string;
   question_count?: number;
   owner_id: number | null;
@@ -163,6 +191,7 @@ export interface DbPlayer {
   joined_at: string;
   user_id?: number | null;
   avatar?: string | null;
+  locale?: string | null;
 }
 
 export interface DbUser {
@@ -197,6 +226,7 @@ export interface PlayerJoinPayload {
   username: string;
   avatar?: string;
   authToken?: string;
+  locale?: string;
 }
 
 export interface PlayerAnswerPayload {

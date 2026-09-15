@@ -8,6 +8,7 @@ import { initDb } from './db';
 import { adminRouter } from './routes/admin';
 import { authRouter } from './routes/auth';
 import { mediaRouter } from './routes/media';
+import { playRouter } from './routes/play';
 import { usersRouter } from './routes/users';
 import { setupSockets } from './socket/index';
 
@@ -35,6 +36,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/admin/users', usersRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/media', mediaRouter);
+app.use('/api/play', playRouter);
 
 // In production serve the built React app
 const clientDist = path.join(process.cwd(), '..', 'client', 'dist');

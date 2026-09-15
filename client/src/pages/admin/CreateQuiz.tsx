@@ -1,4 +1,4 @@
-import { ArrowLeft, Braces, Check, Eye, Sparkles } from 'lucide-react';
+import { ArrowLeft, Braces, Check, Eye, Languages, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AppAlert } from '@/components/AppAlert';
@@ -14,13 +14,14 @@ import {
   QUIZ_IMPORT_EXAMPLE_JSON,
   QUIZ_IMPORT_JSON_SHORT,
 } from '@/helpers/quizImportSchema';
+import { cn } from '@/lib/utils';
 import CreatorNav from '../../components/CreatorNav';
 import { useAuthFetch } from '../../hooks/useAuthFetch';
 import { useCreatorBase } from '../../hooks/useCreatorBase';
-import type { ImportPayload, ImportQuestion } from '../../types';
-import { cn } from '@/lib/utils';
+import type { ImportPayload, ImportQuestion, QuizTranslationPayload } from '../../types';
 
 import { clearCreateDraft, QuizStudio, saveCreateDraft } from './components/studio/QuizStudio';
+import { TranslationsDialog } from './components/TranslationsDialog';
 
 const COPY_TONE = {
   example: {
@@ -92,6 +93,8 @@ export default function CreateQuiz() {
   const [preview, setPreview] = useState<{ title: string; questions: ImportQuestion[] } | null>(
     null,
   );
+  const [translationsOpen, setTranslationsOpen] = useState(false);
+  const [stagedTranslations, setStagedTranslations] = useState<QuizTranslationPayload[]>([]);
 
   const saveLabel = saving ? (
     'Saving…'
@@ -109,17 +112,34 @@ export default function CreateQuiz() {
       '/api/admin/quizzes',
       payload,
     );
-    setSaving(false);
-    if (ok) {
-      // Drop the studio autosave here, not only in QuizStudio's success effect —
-      // the JSON-import path saves with QuizStudio unmounted, and the stale
-      // draft would otherwise be restored (and re-saveable) on the next visit.
-      clearCreateDraft();
-      setSuccess(`Quiz created! ID: ${data.id}`);
-      setTimeout(() => navigate(basePath), 1000);
-    } else {
+    if (!ok) {
+      setSaving(false);
       setJsonError(data.error ?? 'Failed to save quiz');
+      return;
     }
+    // Drop the studio autosave here, not only in QuizStudio's success effect —
+    // the JSON-import path saves with QuizStudio unmounted, and the stale
+    // draft would otherwise be restored (and re-saveable) on the next visit.
+    clearCreateDraft();
+
+    // Upload any translations staged before the quiz had an id. The quiz is
+    // already created at this point — a translation failure (e.g. the staged
+    // JSON's question count drifted from what was actually saved) shouldn't
+    // block navigating away, just gets reported alongside the success message.
+    let translationWarning = '';
+    for (const translation of stagedTranslations) {
+      const res = await api.post<{ error?: string }>(
+        `/api/admin/quizzes/${data.id}/translations`,
+        translation,
+      );
+      if (!res.ok) {
+        translationWarning = ` (translation "${translation.locale}" failed: ${res.data.error ?? 'unknown error'} — add it from the Edit screen)`;
+      }
+    }
+
+    setSaving(false);
+    setSuccess(`Quiz created! ID: ${data.id}${translationWarning}`);
+    setTimeout(() => navigate(basePath), translationWarning ? 2500 : 1000);
   }
 
   async function handleJsonSubmit() {
@@ -166,21 +186,44 @@ export default function CreateQuiz() {
   // Default full-screen Kahoot-style studio.
   if (mode === 'studio') {
     return (
-      <QuizStudio
-        key={studioKey}
-        mode="create"
-        saving={saving}
-        error={jsonError}
-        success={success}
-        onSave={saveQuiz}
-        onCancel={() => navigate(basePath)}
-        onValidationError={setJsonError}
-        headerExtra={
-          <Button type="button" variant="ghost" onClick={() => setMode('json')}>
-            <Braces className="size-4" /> JSON import
-          </Button>
-        }
-      />
+      <>
+        <QuizStudio
+          key={studioKey}
+          mode="create"
+          saving={saving}
+          error={jsonError}
+          success={success}
+          onSave={saveQuiz}
+          onCancel={() => navigate(basePath)}
+          onValidationError={setJsonError}
+          headerExtra={
+            <>
+              <Button type="button" variant="ghost" onClick={() => setMode('json')}>
+                <Braces className="size-4" /> JSON import
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setTranslationsOpen(true)}>
+                <Languages className="size-4" />
+                Translations
+                {stagedTranslations.length > 0 && ` (${stagedTranslations.length})`}
+              </Button>
+            </>
+          }
+        />
+        <TranslationsDialog
+          open={translationsOpen}
+          onClose={() => setTranslationsOpen(false)}
+          stagedLocales={stagedTranslations.map((t) => t.locale)}
+          onStage={(payload) =>
+            setStagedTranslations((prev) => [
+              ...prev.filter((t) => t.locale !== payload.locale),
+              payload,
+            ])
+          }
+          onUnstage={(locale) =>
+            setStagedTranslations((prev) => prev.filter((t) => t.locale !== locale))
+          }
+        />
+      </>
     );
   }
 
@@ -196,6 +239,11 @@ export default function CreateQuiz() {
           <div className="flex flex-wrap items-center gap-2">
             <CopyTextButton text={QUIZ_IMPORT_EXAMPLE_JSON} tone="example" />
             <CopyTextButton text={QUIZ_IMPORT_AI_PROMPT} tone="prompt" />
+            <Button type="button" variant="ghost" onClick={() => setTranslationsOpen(true)}>
+              <Languages className="size-4" />
+              Translations
+              {stagedTranslations.length > 0 && ` (${stagedTranslations.length})`}
+            </Button>
             <Button type="button" variant="ghost" onClick={backToStudio}>
               <ArrowLeft className="size-4" /> Back to studio
             </Button>
@@ -297,6 +345,20 @@ export default function CreateQuiz() {
           onClose={() => setPreview(null)}
         />
       )}
+      <TranslationsDialog
+        open={translationsOpen}
+        onClose={() => setTranslationsOpen(false)}
+        stagedLocales={stagedTranslations.map((t) => t.locale)}
+        onStage={(payload) =>
+          setStagedTranslations((prev) => [
+            ...prev.filter((t) => t.locale !== payload.locale),
+            payload,
+          ])
+        }
+        onUnstage={(locale) =>
+          setStagedTranslations((prev) => prev.filter((t) => t.locale !== locale))
+        }
+      />
     </Page>
   );
 }

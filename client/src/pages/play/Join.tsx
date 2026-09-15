@@ -13,6 +13,7 @@ import { AppLogo, AuthCard, PageCenter, Subtitle } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { localeName } from '@/helpers/locale';
 import {
   cleanPin,
   clearPlayerSession,
@@ -20,6 +21,7 @@ import {
   savePlayerSession,
 } from '@/helpers/playerSession';
 import { getSocket, useSocketEvent } from '@/hooks/useSocket';
+import { apiFetch } from '@/lib/api';
 
 import type { AuthUser } from '@/types';
 
@@ -43,6 +45,9 @@ export default function Join() {
   const [pin, setPin] = useState(pinParam ?? '');
   const [username, setUsername] = useState('');
   const [avatar, setAvatar] = useState<string>(() => loadSavedAvatar());
+  const [locale, setLocale] = useState<string>(() => loadPlayerSession().locale || 'base');
+  const [availableLocales, setAvailableLocales] = useState<string[]>([]);
+  const [baseLocale, setBaseLocale] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [joining, setJoining] = useState(false);
   const [step, setStep] = useState<'form' | 'avatar'>('form');
@@ -68,6 +73,7 @@ export default function Join() {
       avatar: stored.avatar ?? '',
       playerId: Number(stored.playerId),
       authToken: token ?? undefined,
+      locale: stored.locale || 'base',
     });
   }, [socket, token]);
 
@@ -80,6 +86,7 @@ export default function Join() {
         username: data.username,
         avatar,
         pin: cleanPin(pin),
+        locale,
       });
       if (avatar) saveAvatar(avatar);
       navigate(`/play/game/${data.sessionId}`);
@@ -110,6 +117,20 @@ export default function Join() {
       return;
     }
     setStep('avatar');
+    // Best-effort: populate the language selector. Never blocks joining if
+    // this fails or the quiz has no translations — the selector still shows
+    // "Original" and the server falls back to the base language regardless.
+    apiFetch<{ baseLocale: string | null; locales: string[] }>(
+      `/api/play/sessions/${cleanedPin}/locales`,
+    )
+      .then(({ ok, data }) => {
+        setAvailableLocales(ok ? data.locales : []);
+        setBaseLocale(ok ? data.baseLocale : null);
+      })
+      .catch(() => {
+        setAvailableLocales([]);
+        setBaseLocale(null);
+      });
   }
 
   function handleJoin() {
@@ -124,6 +145,7 @@ export default function Join() {
       username: username.trim(),
       avatar,
       authToken: token ?? undefined,
+      locale,
     });
   }
 
@@ -216,6 +238,28 @@ export default function Join() {
               }}
             />
 
+            <label htmlFor="locale" className="mt-4 block text-sm font-medium text-foreground">
+              Language
+            </label>
+            <select
+              id="locale"
+              value={locale}
+              onChange={(e) => setLocale(e.target.value)}
+              className="mt-2 w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
+            >
+              <option value="base">{baseLocale ? localeName(baseLocale) : 'Original'}</option>
+              {availableLocales.map((code) => (
+                <option key={code} value={code}>
+                  {localeName(code)}
+                </option>
+              ))}
+            </select>
+            {availableLocales.length > 0 && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Some questions may show in the quiz's original language if not yet translated.
+              </p>
+            )}
+
             <Button
               type="button"
               variant="default"
@@ -243,8 +287,7 @@ export default function Join() {
             </>
           ) : (
             <>
-              <a href="/login">Sign in</a> · <a href="/register">Register</a> ·{' '}
-              <a href="/">Home</a>
+              <a href="/login">Sign in</a> · <a href="/register">Register</a> · <a href="/">Home</a>
             </>
           )}
         </p>

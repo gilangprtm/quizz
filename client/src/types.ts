@@ -246,7 +246,22 @@ export interface ImportPayload {
   description?: string;
   coverImage?: string;
   theme?: ThemeId;
+  /** The language the quiz is authored in (locale code, e.g. "fr"). Defaults to French. */
+  language?: string;
   questions: ImportQuestion[];
+}
+
+/** One question's translated display text for a given locale. */
+export interface QuizTranslationQuestion {
+  text: string;
+  options: string[];
+  matches?: string[];
+  explanation?: string;
+}
+
+export interface QuizTranslationPayload {
+  locale: string;
+  questions: QuizTranslationQuestion[];
 }
 
 /** Lobby intro shown to players on the waiting screen before the game starts. */

@@ -35,6 +35,7 @@ import {
   getOrCreateAnsweredSet,
   getStateBySessionId,
 } from './gameState';
+import { loadQuizTranslations, localizeDbQuestion } from './localization';
 import { endActiveSession, setSocketIo } from './sessionLifecycle';
 
 /**
@@ -108,6 +109,7 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
             'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
             session.quiz_id,
           ),
+        () => loadQuizTranslations(session.quiz_id),
         socket.id,
       );
       state.adminSocketId = socket.id;
@@ -140,20 +142,18 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
         });
       } else if (session.status === 'active') {
         if (state.questionPhase === 'results' && state.lastResultsPayload) {
-          restoreResultsPhase(socket, state);
+          restoreResultsPhase(socket, state, 'base');
           emitNextPreview(io, state);
         } else {
           // Live question (in memory) or cold state after a server restart —
-          // rebuild from the DB index so the host sees the question.
-          let payload: Record<string, unknown> | null;
-          if (state.questionPhase === 'question' && state.lastQuestionPayload) {
-            payload = state.lastQuestionPayload as Record<string, unknown>;
-          } else {
-            payload = coldRebuildQuestion(io, state, session);
+          // rebuild from the DB index so the host sees the question. Host
+          // always sees the base locale.
+          if (!(state.questionPhase === 'question' && state.lastQuestionPayload)) {
+            coldRebuildQuestion(io, state, session, 'base');
           }
           const currentQ = state.questions[state.currentQuestionIndex];
-          if (payload && currentQ) {
-            restoreQuestionPhase(socket, state, payload);
+          if (state.lastQuestionPayload && currentQ) {
+            restoreQuestionPhase(socket, state, 'base');
             const answered = state.answeredPlayers.get(currentQ.id);
             socket.emit('game:answer-received', {
               answeredCount: answered?.size ?? 0,
@@ -363,6 +363,7 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
         avatar?: string;
         playerId?: number;
         authToken?: string;
+        locale?: string;
       }) => {
         const { pin, username, avatar, authToken } = data;
         const linkedUserId = resolveUserFromAuthToken(authToken);
@@ -418,11 +419,14 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           socket.join(`player:${playerId}`);
 
           const wasActive = activeSessions.has(pin);
-          const state = await getOrCreateActiveSession(session, () =>
-            db.all<DbQuestion[]>(
-              'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
-              session.quiz_id,
-            ),
+          const state = await getOrCreateActiveSession(
+            session,
+            () =>
+              db.all<DbQuestion[]>(
+                'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
+                session.quiz_id,
+              ),
+            () => loadQuizTranslations(session.quiz_id),
           );
           if (wasActive) state.status = session.status as ActiveSession['status'];
 
@@ -432,6 +436,12 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           state.playerSockets.set(playerId, socket.id);
           state.socketPlayers.set(socket.id, playerId);
           if (avatar) state.playerAvatars.set(playerId, avatar);
+
+          const locale = data.locale || existing.locale || 'base';
+          state.playerLocales.set(playerId, locale);
+          if (locale !== (existing.locale ?? 'base')) {
+            await db.run('UPDATE players SET locale = ? WHERE id = ?', locale, playerId);
+          }
 
           const players = await db.all<DbPlayer[]>(
             'SELECT * FROM players WHERE session_id = ?',
@@ -471,12 +481,14 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
           return;
         }
 
+        const joinLocale = data.locale || 'base';
         const result = await db.run(
-          'INSERT INTO players (session_id, username, user_id, avatar) VALUES (?, ?, ?, ?)',
+          'INSERT INTO players (session_id, username, user_id, avatar, locale) VALUES (?, ?, ?, ?, ?)',
           session.id,
           cleanName,
           linkedUserId,
           avatar?.trim() || null,
+          joinLocale,
         );
         const playerId = Number(result.lastID);
 
@@ -488,17 +500,21 @@ export function setupSockets(httpServer: HttpServer): SocketServer {
         socket.join(`player:${playerId}`);
 
         const wasActive = activeSessions.has(pin);
-        const state = await getOrCreateActiveSession(session, () =>
-          db.all<DbQuestion[]>(
-            'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
-            session.quiz_id,
-          ),
+        const state = await getOrCreateActiveSession(
+          session,
+          () =>
+            db.all<DbQuestion[]>(
+              'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
+              session.quiz_id,
+            ),
+          () => loadQuizTranslations(session.quiz_id),
         );
         if (wasActive) state.status = session.status as ActiveSession['status'];
 
         state.playerSockets.set(playerId, socket.id);
         state.socketPlayers.set(socket.id, playerId);
         if (avatar) state.playerAvatars.set(playerId, avatar);
+        state.playerLocales.set(playerId, joinLocale);
 
         const players = await db.all<DbPlayer[]>(
           'SELECT * FROM players WHERE session_id = ?',
@@ -971,53 +987,104 @@ function remainingSec(startedAt: number | null, totalSec: number): number {
   return Math.max(totalSec - elapsed, 0);
 }
 
-/** Re-emit the last results payload with the auto-advance countdown adjusted. */
-function restoreResultsPhase(socket: Socket, state: ActiveSession): void {
+/** Re-emit the last results payload with the auto-advance countdown adjusted, localized for `locale`. */
+function restoreResultsPhase(socket: Socket, state: ActiveSession, locale: string): void {
   const rPayload = state.lastResultsPayload as Record<string, unknown>;
   const originalAutoAdvance = (rPayload.autoAdvanceSec as number) ?? 0;
+  const overlay = localizeResultsOverlay(state, rPayload, locale);
   socket.emit('game:question-results', {
     ...rPayload,
+    ...overlay,
     autoAdvanceSec: remainingSec(state.resultsShownAt, originalAutoAdvance),
   });
 }
 
-/** Re-emit the current question payload with the remaining time adjusted. */
-function restoreQuestionPhase(
-  socket: Socket,
-  state: ActiveSession,
-  payload: Record<string, unknown>,
-): void {
+/** Re-emit the current question payload, rebuilt for `locale`, with remaining time adjusted. */
+function restoreQuestionPhase(socket: Socket, state: ActiveSession, locale: string): void {
+  const payload = state.lastQuestionPayload as Record<string, unknown>;
+  const index = state.currentQuestionIndex;
+  const baseQ = state.questions[index];
+  const localizedPayload =
+    locale === 'base' || !baseQ
+      ? payload
+      : (buildQuestionPayload(
+          localizeDbQuestion(baseQ, index, locale, state.translations),
+          index,
+          state.questions.length,
+          state.answerSeed,
+        ) as Record<string, unknown>);
   const originalTimeSec = (payload.timeSec as number) ?? 0;
   socket.emit('game:question', {
-    ...payload,
+    ...localizedPayload,
     timeRemaining: remainingSec(state.questionStartedAt, originalTimeSec),
   });
+}
+
+/**
+ * Text fields of a cached (base-locale) results payload that need swapping
+ * for `locale`. Reuses the same option-shuffle permutation the base payload
+ * was built with (deterministic from question id + answerSeed, independent
+ * of locale) rather than recomputing the whole results payload. Returns `{}`
+ * when there's nothing to localize (base locale, or no translation for this
+ * question — the base fields already stand).
+ */
+function localizeResultsOverlay(
+  state: ActiveSession,
+  basePayload: Record<string, unknown>,
+  locale: string,
+): Record<string, unknown> {
+  if (locale === 'base') return {};
+  const questionId = basePayload.questionId as number;
+  const index = state.questions.findIndex((x) => x.id === questionId);
+  const q = state.questions[index];
+  if (!q) return {};
+  const localizedQ = localizeDbQuestion(q, index, locale, state.translations);
+  if (localizedQ === q) return {};
+
+  const perm = optionPerm(q, state.answerSeed);
+  const rawOptions = JSON.parse(localizedQ.options) as string[];
+  const options = perm ? perm.map((i) => rawOptions[i]) : rawOptions;
+
+  const overlay: Record<string, unknown> = {
+    questionText: localizedQ.text,
+    options,
+    explanation: localizedQ.explanation?.trim() || undefined,
+  };
+  if (q.question_type === 'ordering') overlay.correctOrder = options;
+  if (q.question_type === 'matching') {
+    const rightItems = JSON.parse(localizedQ.matches ?? '[]') as string[];
+    overlay.correctPairs = rawOptions.map((left, i) => ({ left, right: rightItems[i] ?? '' }));
+  }
+  return overlay;
 }
 
 /**
  * Cold state (server restarted mid-game): rebuild the current question in
  * memory from the DB index (`session.current_question_index` is the source of
  * truth) and re-arm the question timeout so the question still times out.
- * Returns the rebuilt payload, or null when there is no current question.
+ * Always caches the BASE-locale payload (other reconnects/the host rely on
+ * `state.lastQuestionPayload` staying base-locale) and separately returns a
+ * payload localized for the reconnecting player's `locale`.
  */
 function coldRebuildQuestion(
   io: SocketServer,
   state: ActiveSession,
   session: DbSession,
+  locale: string,
 ): Record<string, unknown> | null {
   const index = session.current_question_index;
   const currentQ = state.questions[index];
   if (!currentQ) return null;
 
   state.currentQuestionIndex = index;
-  const payload = buildQuestionPayload(
+  const basePayload = buildQuestionPayload(
     currentQ,
     index,
     state.questions.length,
     state.answerSeed,
   ) as Record<string, unknown>;
   state.questionPhase = 'question';
-  state.lastQuestionPayload = payload;
+  state.lastQuestionPayload = basePayload;
   state.questionStartedAt = Date.now();
 
   if (!state.questionTimer) {
@@ -1027,7 +1094,13 @@ function coldRebuildQuestion(
     }, currentQ.time_sec * 1000);
   }
 
-  return payload;
+  if (locale === 'base') return basePayload;
+  return buildQuestionPayload(
+    localizeDbQuestion(currentQ, index, locale, state.translations),
+    index,
+    state.questions.length,
+    state.answerSeed,
+  ) as Record<string, unknown>;
 }
 
 /** Restore in-game UI for a player reconnecting mid-session (reload, tab switch, etc.). */
@@ -1040,6 +1113,8 @@ async function emitReconnectGameState(
 ): Promise<void> {
   if (session.status !== 'active') return;
 
+  const locale = state.playerLocales.get(playerId) ?? 'base';
+
   const myJokersUsed = state.playerJokersUsed.get(playerId) ?? {
     pass: false,
     fiftyFifty: false,
@@ -1050,7 +1125,7 @@ async function emitReconnectGameState(
   });
 
   if (state.questionPhase === 'results' && state.lastResultsPayload) {
-    restoreResultsPhase(socket, state);
+    restoreResultsPhase(socket, state, locale);
     return;
   }
 
@@ -1088,7 +1163,7 @@ async function emitReconnectGameState(
   }
 
   if (state.questionPhase === 'question' && state.lastQuestionPayload) {
-    restoreQuestionPhase(socket, state, state.lastQuestionPayload as Record<string, unknown>);
+    restoreQuestionPhase(socket, state, locale);
     const myEliminated = state.playerFiftyFiftyIndices.get(playerId);
     if (myEliminated) {
       socket.emit('player:joker-5050-applied', { eliminatedIndices: myEliminated });
@@ -1097,7 +1172,7 @@ async function emitReconnectGameState(
   }
 
   // Cold state: server restarted — rebuild question from DB index
-  const coldPayload = coldRebuildQuestion(io, state, session);
+  const coldPayload = coldRebuildQuestion(io, state, session, locale);
   if (coldPayload) {
     socket.emit('game:question', coldPayload);
   }
@@ -1124,7 +1199,23 @@ function sendQuestion(io: SocketServer, state: ActiveSession, index: number): vo
   state.lastQuestionPayload = payload;
   state.questionStartedAt = Date.now();
 
-  io.to(`session:${state.sessionId}`).emit('game:question', payload);
+  // Players join `session:${id}` alongside the host, but each player now gets
+  // a payload localized to their own chosen locale — so the host (always
+  // base-locale) is emitted to directly instead of via that shared room.
+  if (state.adminSocketId) io.to(state.adminSocketId).emit('game:question', payload);
+  for (const playerId of state.playerSockets.keys()) {
+    const locale = state.playerLocales.get(playerId) ?? 'base';
+    const playerPayload =
+      locale === 'base'
+        ? payload
+        : buildQuestionPayload(
+            localizeDbQuestion(q, index, locale, state.translations),
+            index,
+            state.questions.length,
+            state.answerSeed,
+          );
+    io.to(`player:${playerId}`).emit('game:question', playerPayload);
+  }
 
   // Server-side timer
   if (state.questionTimer) clearTimeout(state.questionTimer);
@@ -1319,7 +1410,20 @@ function showResults(io: SocketServer, state: ActiveSession, questionId: number)
     state.lastResultsPayload = resultsPayload;
     state.resultsShownAt = Date.now();
 
-    io.to(`session:${state.sessionId}`).emit('game:question-results', resultsPayload);
+    // Same split as sendQuestion: host gets the base-locale payload directly,
+    // each player gets it overlaid with their own locale's text fields. The
+    // expensive leaderboard/answer computation above stays locale-independent
+    // and runs exactly once.
+    if (state.adminSocketId) {
+      io.to(state.adminSocketId).emit('game:question-results', resultsPayload);
+    }
+    for (const playerId of state.playerSockets.keys()) {
+      const locale = state.playerLocales.get(playerId) ?? 'base';
+      const overlay = localizeResultsOverlay(state, resultsPayload, locale);
+      const playerPayload =
+        Object.keys(overlay).length === 0 ? resultsPayload : { ...resultsPayload, ...overlay };
+      io.to(`player:${playerId}`).emit('game:question-results', playerPayload);
+    }
 
     // Host-only preview of the upcoming question (text only — never the answers,
     // and never sent to players).
