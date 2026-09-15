@@ -1,6 +1,7 @@
 import {
   Check,
   ClipboardList,
+  Copy,
   Eye,
   PencilLine,
   Search,
@@ -14,8 +15,9 @@ import { MediaPicker } from '@/components/MediaPicker';
 import { QuizPreviewModal } from '@/components/QuizPreviewModal';
 import { Button } from '@/components/ui/button';
 import { type QuestionWithKey, validateQuizPayload, withKey } from '@/helpers';
+import { COMMON_LOCALES, DEFAULT_LOCALE, localeName } from '@/helpers/locale';
 import { cn } from '@/lib/utils';
-import { THEME_IDS, type ImportPayload, type ImportQuestion, type ThemeId } from '@/types';
+import { type ImportPayload, type ImportQuestion, THEME_IDS, type ThemeId } from '@/types';
 import { PropertiesPanel } from './PropertiesPanel';
 import { QuestionCanvas } from './QuestionCanvas';
 import {
@@ -43,6 +45,7 @@ interface Draft {
   description: string;
   coverImage: string;
   theme?: ThemeId;
+  language?: string;
   questions: QuestionWithKey[];
 }
 
@@ -100,6 +103,7 @@ interface Props {
   initialDescription?: string;
   initialCoverImage?: string;
   initialTheme?: ThemeId;
+  initialLanguage?: string;
   initialQuestions?: QuestionWithKey[];
   saving: boolean;
   error: string;
@@ -116,6 +120,7 @@ export function QuizStudio({
   initialDescription = '',
   initialCoverImage = '',
   initialTheme = 'default',
+  initialLanguage = DEFAULT_LOCALE,
   initialQuestions,
   saving,
   error,
@@ -131,6 +136,7 @@ export function QuizStudio({
   const [description, setDescription] = useState(draft?.description ?? initialDescription);
   const [coverImage, setCoverImage] = useState(draft?.coverImage ?? initialCoverImage);
   const [theme, setTheme] = useState<ThemeId>(draft?.theme ?? initialTheme);
+  const [language, setLanguage] = useState(draft?.language ?? initialLanguage);
   const [questions, setQuestions] = useState<QuestionWithKey[]>(() =>
     (
       draft?.questions ??
@@ -143,6 +149,7 @@ export function QuizStudio({
   const [tab, setTab] = useState<'props' | 'quiz'>('props');
   const [previewing, setPreviewing] = useState(false);
   const [coverPicker, setCoverPicker] = useState(false);
+  const [copiedJson, setCopiedJson] = useState(false);
 
   const activeQ = questions[Math.min(active, questions.length - 1)];
 
@@ -158,7 +165,7 @@ export function QuizStudio({
         } else {
           localStorage.setItem(
             DRAFT_KEY,
-            JSON.stringify({ title, description, coverImage, theme, questions }),
+            JSON.stringify({ title, description, coverImage, theme, language, questions }),
           );
         }
       } catch {
@@ -166,7 +173,7 @@ export function QuizStudio({
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [mode, title, description, coverImage, theme, questions]);
+  }, [mode, title, description, coverImage, theme, language, questions]);
 
   // Once the quiz is created, drop the draft so it doesn't reappear next time.
   useEffect(() => {
@@ -199,7 +206,34 @@ export function QuizStudio({
       onValidationError(err);
       return;
     }
-    onSave({ title, description, coverImage: coverImage || undefined, theme, questions: prepared });
+    onSave({
+      title,
+      description,
+      coverImage: coverImage || undefined,
+      theme,
+      language,
+      questions: prepared,
+    });
+  }
+
+  function buildExportPayload(): ImportPayload {
+    return {
+      title,
+      description: description || undefined,
+      coverImage: coverImage || undefined,
+      theme,
+      language,
+      questions: questions.map((q) => {
+        const { _key, ...base } = q;
+        return stripTrailingEmptyOptions(normalizeQuestion(base));
+      }),
+    };
+  }
+
+  function handleExportJson() {
+    navigator.clipboard.writeText(JSON.stringify(buildExportPayload(), null, 2));
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 1500);
   }
 
   function discardDraft() {
@@ -208,6 +242,7 @@ export function QuizStudio({
     setTitle('');
     setDescription('');
     setCoverImage('');
+    setLanguage(DEFAULT_LOCALE);
     setQuestions([withKey(blankQuestion())]);
     setActive(0);
   }
@@ -255,6 +290,25 @@ export function QuizStudio({
           <Button type="button" variant="secondary" size="sm" onClick={() => setPreviewing(true)}>
             <Eye className="size-4" />
             <span className="hidden sm:inline">Preview</span>
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleExportJson}
+            title="Copy quiz as import-ready JSON"
+          >
+            {copiedJson ? (
+              <>
+                <Check className="size-4" />
+                <span className="hidden sm:inline">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="size-4" />
+                <span className="hidden sm:inline">Export JSON</span>
+              </>
+            )}
           </Button>
           <Button type="button" size="sm" onClick={handleSave} disabled={saving}>
             {saving ? (
@@ -343,6 +397,24 @@ export function QuizStudio({
             activeQ && <PropertiesPanel q={activeQ} ops={ops} onChange={updateActive} />
           ) : (
             <div className="flex flex-col gap-4 p-4">
+              <div>
+                <Input
+                  noMargin
+                  label="Language"
+                  list="quiz-language-suggestions"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value || DEFAULT_LOCALE)}
+                  placeholder={DEFAULT_LOCALE}
+                  hint={`The language this quiz is written in — players who don't pick a translation see "${localeName(language)}".`}
+                />
+                <datalist id="quiz-language-suggestions">
+                  {COMMON_LOCALES.map((code) => (
+                    <option key={code} value={code}>
+                      {localeName(code)}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
               <Textarea
                 noMargin
                 label="Description"
@@ -401,7 +473,10 @@ export function QuizStudio({
                             <Check className="size-3" />
                           </span>
                         )}
-                        <span className="h-8 w-12 rounded" style={{ background: THEME_SWATCH[t].bg }}>
+                        <span
+                          className="h-8 w-12 rounded"
+                          style={{ background: THEME_SWATCH[t].bg }}
+                        >
                           <span
                             className="block h-2 w-6 translate-x-1 translate-y-3 rounded-full"
                             style={{ background: THEME_SWATCH[t].accent }}

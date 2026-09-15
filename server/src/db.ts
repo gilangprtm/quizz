@@ -85,6 +85,20 @@ export async function initDb(): Promise<void> {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       last_password_change TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS question_translations (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      quiz_id       INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+      locale        TEXT NOT NULL,
+      order_index   INTEGER NOT NULL,
+      question_type TEXT NOT NULL,
+      text          TEXT NOT NULL,
+      options       TEXT NOT NULL,
+      matches       TEXT,
+      explanation   TEXT,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(quiz_id, locale, order_index)
+    );
   `);
 
   // Column migrations (safe to run multiple times)
@@ -115,6 +129,8 @@ export async function initDb(): Promise<void> {
     `ALTER TABLE players ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`,
     `ALTER TABLE players ADD COLUMN avatar TEXT`,
     `ALTER TABLE questions ADD COLUMN matches TEXT`,
+    `ALTER TABLE players ADD COLUMN locale TEXT`,
+    `ALTER TABLE quizzes ADD COLUMN language TEXT NOT NULL DEFAULT 'fr'`,
   ];
   for (const sql of columnMigrations) {
     try {

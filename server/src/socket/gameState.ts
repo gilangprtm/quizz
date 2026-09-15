@@ -1,4 +1,5 @@
 import type { DbPlayer, DbQuestion, DbSession, GameSettings, LeaderboardEntry } from '../types';
+import type { TranslationsByLocale } from './localization';
 
 const defaultGameSettings = (): GameSettings => ({
   jokersEnabled: { pass: false, fiftyFifty: false },
@@ -7,6 +8,7 @@ const defaultGameSettings = (): GameSettings => ({
 export function createActiveSession(
   session: Pick<DbSession, 'id' | 'quiz_id' | 'pin' | 'status' | 'current_question_index'>,
   questions: DbQuestion[],
+  translations: TranslationsByLocale,
   adminSocketId = '',
 ): ActiveSession {
   return {
@@ -15,6 +17,8 @@ export function createActiveSession(
     pin: session.pin,
     adminSocketId,
     questions,
+    translations,
+    playerLocales: new Map(),
     currentQuestionIndex: session.current_question_index,
     playerSockets: new Map(),
     socketPlayers: new Map(),
@@ -47,6 +51,10 @@ export interface ActiveSession {
   pin: string;
   adminSocketId: string;
   questions: DbQuestion[];
+  // Uploaded translations for this quiz, snapshotted at session creation.
+  translations: TranslationsByLocale;
+  // playerId → chosen locale ('base' or absent = the quiz's original language)
+  playerLocales: Map<number, string>;
   currentQuestionIndex: number;
   // playerId → socket id
   playerSockets: Map<number, string>;
@@ -113,6 +121,7 @@ const pendingSessionCreation = new Map<string, Promise<ActiveSession>>();
 export async function getOrCreateActiveSession(
   session: Pick<DbSession, 'id' | 'quiz_id' | 'pin' | 'status' | 'current_question_index'>,
   fetchQuestions: () => Promise<DbQuestion[]>,
+  fetchTranslations: () => Promise<TranslationsByLocale>,
   adminSocketId = '',
 ): Promise<ActiveSession> {
   const existing = activeSessions.get(session.pin);
@@ -121,8 +130,8 @@ export async function getOrCreateActiveSession(
   let pending = pendingSessionCreation.get(session.pin);
   if (!pending) {
     pending = (async () => {
-      const questions = await fetchQuestions();
-      const state = createActiveSession(session, questions, adminSocketId);
+      const [questions, translations] = await Promise.all([fetchQuestions(), fetchTranslations()]);
+      const state = createActiveSession(session, questions, translations, adminSocketId);
       activeSessions.set(session.pin, state);
       sessionIdToPin.set(session.id, session.pin);
       return state;

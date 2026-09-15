@@ -1,20 +1,21 @@
 import { type Request, type Response, Router } from 'express';
-import { saveAvatarsFromDataUrls, deleteAvatarByUrl } from '../avatars';
+import { deleteAvatarByUrl, saveAvatarsFromDataUrls } from '../avatars';
 import { config, saveConfig, toPublicConfig } from '../config';
 import { db, getRankedPlayers } from '../db';
-import { getRequestUser, requireAuth, requireSuperAdmin } from '../middleware';
 import { getMetricsSnapshot } from '../metrics';
+import { getRequestUser, requireAuth, requireSuperAdmin } from '../middleware';
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../passwords';
 import { terminateSessionById } from '../socket/sessionLifecycle';
-import { THEME_IDS } from '../types';
 import type {
   DbQuestion,
   DbQuiz,
   DbSession,
   QuizImportPayload,
   QuizQuestion,
+  QuizTranslationPayload,
   ThemeId,
 } from '../types';
+import { THEME_IDS } from '../types';
 import {
   normalizeImageUrl,
   normalizeOptionalText,
@@ -253,6 +254,11 @@ function normalizeTheme(theme: unknown): ThemeId {
   return THEME_IDS.includes(theme as ThemeId) ? (theme as ThemeId) : 'default';
 }
 
+/** The quiz's authoring language (open-ended locale code). Defaults to French. */
+function normalizeLanguage(language: unknown): string {
+  return typeof language === 'string' && language.trim() ? language.trim() : 'fr';
+}
+
 adminRouter.post('/quizzes', requireAuth, async (req: Request, res: Response) => {
   const body = req.body as QuizImportPayload;
   if (!body.title || !Array.isArray(body.questions) || body.questions.length === 0) {
@@ -266,11 +272,12 @@ adminRouter.post('/quizzes', requireAuth, async (req: Request, res: Response) =>
   await db.run('BEGIN');
   try {
     const quizResult = await db.run(
-      'INSERT INTO quizzes (title, description, cover_image, theme, owner_id, owner_kind) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO quizzes (title, description, cover_image, theme, language, owner_id, owner_kind) VALUES (?, ?, ?, ?, ?, ?, ?)',
       body.title,
       body.description ?? '',
       normalizeImageUrl(body.coverImage) ?? null,
       normalizeTheme(body.theme),
+      normalizeLanguage(body.language),
       ownerId,
       ownerKind,
     );
@@ -301,11 +308,12 @@ adminRouter.put('/quizzes/:id', requireAuth, async (req: Request, res: Response)
   await db.run('BEGIN');
   try {
     await db.run(
-      'UPDATE quizzes SET title = ?, description = ?, cover_image = ?, theme = ? WHERE id = ?',
+      'UPDATE quizzes SET title = ?, description = ?, cover_image = ?, theme = ?, language = ? WHERE id = ?',
       body.title,
       body.description ?? '',
       normalizeImageUrl(body.coverImage) ?? null,
       normalizeTheme(body.theme),
+      normalizeLanguage(body.language),
       req.params.id,
     );
     await db.run('DELETE FROM questions WHERE quiz_id = ?', req.params.id);
@@ -331,6 +339,100 @@ adminRouter.delete('/quizzes/:id', requireAuth, async (req: Request, res: Respon
   await db.run('DELETE FROM quizzes WHERE id = ?', req.params.id);
   res.json({ ok: true });
 });
+
+// ─── Quiz translations ───────────────────────────────────────────────────────
+
+adminRouter.get('/quizzes/:id/translations', requireAuth, async (req: Request, res: Response) => {
+  const quiz = await db.get<DbQuiz>('SELECT * FROM quizzes WHERE id = ?', req.params.id);
+  if (!quiz) return res.status(404).json({ error: 'Not found' });
+  if (!(await canAccessQuiz(req, quiz))) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const rows = await db.all<Array<{ locale: string }>>(
+    'SELECT DISTINCT locale FROM question_translations WHERE quiz_id = ?',
+    req.params.id,
+  );
+  res.json({ locales: rows.map((r) => r.locale) });
+});
+
+adminRouter.post('/quizzes/:id/translations', requireAuth, async (req: Request, res: Response) => {
+  const quiz = await db.get<DbQuiz>('SELECT * FROM quizzes WHERE id = ?', req.params.id);
+  if (!quiz) return res.status(404).json({ error: 'Not found' });
+  if (!(await canAccessQuiz(req, quiz))) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const body = req.body as QuizTranslationPayload;
+  const locale = body.locale?.trim();
+  if (!locale) return res.status(400).json({ error: 'locale is required' });
+  if (!Array.isArray(body.questions) || body.questions.length === 0) {
+    return res.status(400).json({ error: 'questions are required' });
+  }
+
+  const baseQuestions = await db.all<DbQuestion[]>(
+    'SELECT * FROM questions WHERE quiz_id = ? ORDER BY order_index',
+    req.params.id,
+  );
+  if (body.questions.length !== baseQuestions.length) {
+    return res.status(400).json({
+      error: `Translation has ${body.questions.length} question(s), quiz has ${baseQuestions.length}. They must match in count and order.`,
+    });
+  }
+  for (const tq of body.questions) {
+    if (typeof tq.text !== 'string' || !tq.text.trim()) {
+      return res.status(400).json({ error: 'Every translated question needs text' });
+    }
+    if (!Array.isArray(tq.options)) {
+      return res.status(400).json({ error: 'Every translated question needs an options array' });
+    }
+  }
+
+  await db.run('BEGIN');
+  try {
+    await db.run(
+      'DELETE FROM question_translations WHERE quiz_id = ? AND locale = ?',
+      req.params.id,
+      locale,
+    );
+    for (let i = 0; i < body.questions.length; i++) {
+      const tq = body.questions[i];
+      await db.run(
+        'INSERT INTO question_translations (quiz_id, locale, order_index, question_type, text, options, matches, explanation) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        req.params.id,
+        locale,
+        i,
+        baseQuestions[i].question_type,
+        tq.text,
+        JSON.stringify(tq.options),
+        tq.matches ? JSON.stringify(tq.matches) : null,
+        normalizeOptionalText(tq.explanation) ?? null,
+      );
+    }
+    await db.run('COMMIT');
+    res.json({ ok: true, locale, questionCount: body.questions.length });
+  } catch (err) {
+    await db.run('ROLLBACK');
+    throw err;
+  }
+});
+
+adminRouter.delete(
+  '/quizzes/:id/translations/:locale',
+  requireAuth,
+  async (req: Request, res: Response) => {
+    const quiz = await db.get<DbQuiz>('SELECT * FROM quizzes WHERE id = ?', req.params.id);
+    if (!quiz) return res.status(404).json({ error: 'Not found' });
+    if (!(await canAccessQuiz(req, quiz))) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    await db.run(
+      'DELETE FROM question_translations WHERE quiz_id = ? AND locale = ?',
+      req.params.id,
+      req.params.locale,
+    );
+    res.json({ ok: true });
+  },
+);
 
 // ─── Sessions ─────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
-import { validateClosestToQuestion, withKey, type QuestionWithKey } from '@/helpers';
+import { type QuestionWithKey, validateClosestToQuestion, withKey } from '@/helpers';
 import { normalizeQuestion } from '@/pages/admin/components/studio/questionOps';
-import { THEME_IDS, type ImportPayload, type ThemeId } from '@/types';
+import { type ImportPayload, type QuizTranslationPayload, THEME_IDS, type ThemeId } from '@/types';
 
 /** Full import example — one question per supported type, with every optional field shown. */
 export const QUIZ_IMPORT_EXAMPLE = {
@@ -8,6 +8,7 @@ export const QUIZ_IMPORT_EXAMPLE = {
   description: 'A quick 12-question warm-up — geography, code, music & more',
   coverImage: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=1200',
   theme: 'space',
+  language: 'fr',
   questions: [
     {
       text: 'What is the capital of France?',
@@ -170,6 +171,7 @@ export const QUIZ_IMPORT_JSON_SHORT = `{
   "description": "Optional subtitle shown in the lobby",
   "coverImage": "https://example.com/cover.jpg",
   "theme": "default",
+  "language": "fr",
   "questions": [
     {
       "text": "What is the capital of France?",
@@ -197,6 +199,12 @@ const QUIZ_IMPORT_SCHEMA_OBJECT = {
       enum: THEME_IDS,
       default: 'default',
       description: 'Visual theme for game screens',
+    },
+    language: {
+      type: 'string',
+      default: 'fr',
+      description:
+        'Locale code the quiz is authored in (e.g. "fr", "en", "es"). Defaults to French.',
     },
     questions: {
       type: 'array',
@@ -248,7 +256,11 @@ const QUIZ_IMPORT_SCHEMA_OBJECT = {
           ],
           default: 'multiple_choice',
         },
-        baseScore: { type: 'integer', default: 500, description: 'Points for a fully correct answer' },
+        baseScore: {
+          type: 'integer',
+          default: 500,
+          description: 'Points for a fully correct answer',
+        },
         timeSec: { type: 'integer', default: 20, description: 'Seconds to answer' },
         imageUrl: { type: 'string', description: 'Question image URL' },
         explanation: { type: 'string', description: 'Shown on the results screen after reveal' },
@@ -311,6 +323,7 @@ Requirements:
 1. Output ONLY valid JSON — no markdown code fences, no commentary before or after.
 2. Use the exact field names and question types from the Quizz JSON schema below.
 3. Include a clear title and description for the quiz lobby.
+3b. Set "language" to the locale code you're writing the questions in (default "fr" for French; use "en" if I ask for English, etc.).
 4. Add an explanation on each question (shown after the answer is revealed).
 5. Add tags (topic, difficulty) on questions when helpful.
 6. Mix question types where appropriate.
@@ -322,9 +335,7 @@ export const QUIZ_IMPORT_AI_PROMPT = `${QUIZ_IMPORT_AI_INSTRUCTIONS}
 === JSON SCHEMA ===
 ${QUIZ_IMPORT_SCHEMA}`;
 
-export type ParsedQuizImport =
-  | { ok: true; payload: ImportPayload }
-  | { ok: false; error: string };
+export type ParsedQuizImport = { ok: true; payload: ImportPayload } | { ok: false; error: string };
 
 /**
  * Parse and validate pasted quiz JSON before import or direct save.
@@ -354,6 +365,56 @@ export function parseQuizImportJson(
     }
   }
   return { ok: true, payload };
+}
+
+export type ParsedQuizTranslation =
+  | { ok: true; payload: QuizTranslationPayload }
+  | { ok: false; error: string };
+
+/**
+ * Parse and validate a pasted translation JSON before uploading it against an
+ * existing quiz. `expectedCount` is the base quiz's current question count —
+ * translations are matched to base questions by order/index, so the counts
+ * must match exactly (the server re-validates this regardless). Omit
+ * `expectedCount` when the base quiz doesn't have a stable question count yet
+ * (e.g. staged during quiz creation, before the first save) — the count is
+ * then only checked server-side, once the quiz exists.
+ *
+ * `locale` is normally set via the modal's own locale field, taking priority
+ * over a top-level `"locale"` in the pasted JSON — either works, so JSON
+ * copied from the example (which embeds one) still parses on its own.
+ */
+export function parseQuizTranslationJson(
+  text: string,
+  { expectedCount, locale }: { expectedCount?: number; locale?: string } = {},
+): ParsedQuizTranslation {
+  let payload: QuizTranslationPayload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'Invalid JSON — please check the format' };
+  }
+  const resolvedLocale = locale?.trim() || payload.locale?.trim();
+  if (!resolvedLocale) {
+    return { ok: false, error: 'Enter a locale (e.g. "fr", "es-MX")' };
+  }
+  if (!Array.isArray(payload.questions) || payload.questions.length === 0) {
+    return { ok: false, error: 'JSON must have a non-empty "questions" array' };
+  }
+  if (expectedCount !== undefined && payload.questions.length !== expectedCount) {
+    return {
+      ok: false,
+      error: `This quiz has ${expectedCount} question(s), but the translation has ${payload.questions.length}. They must match in count and order.`,
+    };
+  }
+  for (let i = 0; i < payload.questions.length; i++) {
+    const q = payload.questions[i];
+    if (!q.text?.trim()) return { ok: false, error: `Question ${i + 1} is missing "text"` };
+    if (!Array.isArray(q.options)) {
+      return { ok: false, error: `Question ${i + 1} is missing an "options" array` };
+    }
+  }
+  return { ok: true, payload: { ...payload, locale: resolvedLocale } };
 }
 
 /** Convert a validated import payload into studio slide state. */

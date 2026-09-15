@@ -9,6 +9,7 @@ export interface StoredPlayerSession {
   username: string | null;
   avatar: string | null;
   pin: string | null;
+  locale: string | null;
 }
 
 /** Normalize a game PIN: trim and strip all whitespace. */
@@ -23,6 +24,7 @@ export function loadPlayerSession(): StoredPlayerSession {
     username: sessionStorage.getItem('username'),
     avatar: sessionStorage.getItem('avatar'),
     pin: sessionStorage.getItem('pin'),
+    locale: sessionStorage.getItem('locale'),
   };
 }
 
@@ -37,12 +39,14 @@ export function savePlayerSession(session: {
   username?: string | null;
   avatar?: string;
   pin?: string;
+  locale?: string;
 }): void {
   sessionStorage.setItem('playerId', String(session.playerId));
   sessionStorage.setItem('sessionId', String(session.sessionId));
   sessionStorage.setItem('username', session.username ?? sessionStorage.getItem('username') ?? '');
   sessionStorage.setItem('avatar', session.avatar || sessionStorage.getItem('avatar') || '');
   sessionStorage.setItem('pin', session.pin || sessionStorage.getItem('pin') || '');
+  sessionStorage.setItem('locale', session.locale || sessionStorage.getItem('locale') || 'base');
 }
 
 /**
